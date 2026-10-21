@@ -1,0 +1,21 @@
+{
+  "name": "projectweb",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:mobile": "vite --mode mobile",
+    "build:data": "node scripts/build-network.mjs",
+    "seed:reports": "node scripts/seed-reports.mjs",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "maplibre-gl": "^4.7.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-basic-ssl": "^1.1.0",
+    "vite": "^5.4.8"
+  }
+}

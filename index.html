@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#000000" />
+  <title>Bus Zaragoza · Metro view</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@500;700;900&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body data-view="welcome">
+  <div id="map"></div>
+
+  <!-- Bienvenida + permiso de ubicación -->
+  <section id="welcome" class="overlay">
+    <div class="welcome-step" data-step="1">
+      <svg class="hero" viewBox="0 0 220 90" aria-hidden="true">
+        <path d="M10 70 H70 L100 40 H210" fill="none" stroke="#e30613" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M10 30 H120 L150 60 H210" fill="none" stroke="#6cb33f" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="70" cy="70" r="8" fill="#fff" stroke="#000" stroke-width="3"/><circle cx="135" cy="45" r="8" fill="#fff" stroke="#000" stroke-width="3"/>
+        <circle cx="180" cy="40" r="9" fill="#ffd400" stroke="#000" stroke-width="3"/><circle cx="40" cy="30" r="9" fill="#ffd400" stroke="#000" stroke-width="3"/>
+      </svg>
+      <h1>Bus y tranvía de Zaragoza, como un plano de metro</h1>
+      <p>Encuentra tu parada, mira por dónde viene el bus y cuánto le queda de verdad.</p>
+      <button class="cta" id="start-btn">Empezar</button>
+    </div>
+    <div class="welcome-step" data-step="2" hidden>
+      <div class="gps-icon" aria-hidden="true">◎</div>
+      <h1>¿Usamos tu ubicación?</h1>
+      <p>Te sugerimos las líneas que pasan cerca de ti. No se guarda ni se envía a ningún sitio.</p>
+      <button class="cta" id="gps-yes">Usar mi ubicación</button>
+      <button class="ghost-btn" id="gps-no">Ahora no, elegiré en el mapa</button>
+    </div>
+  </section>
+
+  <!-- Cabecera: cambia según vista -->
+  <header id="topbar">
+    <div class="home-head">
+      <div class="brand"><span class="brand-mark"></span><span>ZGZ <b>Metro view</b></span></div>
+    </div>
+    <div class="route-head">
+      <button id="back-btn" class="icon-btn" aria-label="Volver a rutas">←</button>
+      <div class="route-id">
+        <span id="route-badge" class="line-badge">—</span>
+        <div class="route-dir">
+          <span class="label" id="route-kind">Línea</span>
+          <span class="dir-text"><span id="dir-from">—</span> <span class="dir-arrow">→</span> <b id="dir-to">—</b></span>
+        </div>
+      </div>
+      <button id="swap-btn" class="swap" aria-label="Invertir sentido"><span>⇅</span><small>Invertir</small></button>
+    </div>
+  </header>
+  <div class="map-tools">
+    <button id="dim-btn" class="pill" title="Alternar 2D / 3D">2D</button>
+    <button id="locate-btn" class="pill icon" title="Ubicarme" aria-label="Ubicarme">◎</button>
+  </div>
+  <div id="pin-hint" class="hint">Toca el mapa para poner un pin y ver las líneas cercanas</div>
+
+  <!-- Panel: gestor de rutas -->
+  <section id="home-sheet" class="sheet">
+    <div class="grip"></div>
+    <div class="sheet-head">
+      <div><span class="label" id="near-label">Líneas cerca de ti</span><strong id="near-place">—</strong></div>
+      <button class="pill" id="all-lines-btn">Todas</button>
+    </div>
+    <div id="near-list"></div>
+  </section>
+
+  <!-- Panel: ruta seleccionada -->
+  <section id="route-sheet" class="sheet">
+    <div class="grip"></div>
+    <div id="api-banner" class="banner" hidden></div>
+    <div id="eta-card">
+      <div class="eta-stop">
+        <span class="label">Subes en</span>
+        <strong id="stop-name">—</strong>
+        <span id="stop-meta" class="meta"></span>
+      </div>
+      <div class="eta-big">
+        <span id="eta-value">—</span>
+        <span id="eta-sub" class="meta"></span>
+      </div>
+    </div>
+    <div class="actions-row">
+      <button id="refresh-btn" class="pill cool" data-cool="10">↻ Poste</button>
+      <button id="scan-btn" class="pill cool" data-cool="30">Revisar línea</button>
+      <span id="scan-meta" class="meta"></span>
+    </div>
+    <p id="signal-note" class="note" hidden></p>
+
+    <div id="extra" class="extra"></div>
+
+    <div class="block">
+      <div class="block-title">Próxima hora en tu parada</div>
+      <div id="timeline"></div>
+      <p id="habit-note" class="meta"></p>
+    </div>
+    <div class="block">
+      <div class="block-title">Recorrido <span class="meta">· toca una parada para subir o bajar ahí</span></div>
+      <div id="stops"></div>
+    </div>
+    <p class="foot meta" id="foot"></p>
+  </section>
+
+  <dialog id="lines-dlg">
+    <div class="dlg-head"><strong>Todas las líneas</strong><button class="pill" id="lines-close">Cerrar</button></div>
+    <div id="lines-grid"></div>
+  </dialog>
+
+  <dialog id="extra-dlg">
+    <form method="dialog">
+      <p class="label">Funciones extra · anónimas</p>
+      <h2>Ayuda a predecir el bus real</h2>
+      <ol class="steps">
+        <li><b>Estoy en la parada.</b> Avisas de que esperas en una parada de la línea.</li>
+        <li><b>He cogido el bus.</b> Marcas el momento en que subes y, si quieres, dónde te bajas.</li>
+        <li><b>Verificado por ubicación.</b> Comprobamos que estás en la parada y que luego avanzas por la ruta, para que nadie pueda engañar al sistema.</li>
+      </ol>
+      <p class="meta">No pedimos cuenta ni datos personales. Sólo se guarda línea, parada y hora; tu recorrido no se almacena. Con esos avisos sabemos, por ejemplo, que el bus de las 8:35 pasa aunque Avanza no lo marque.</p>
+      <div class="dlg-actions"><button value="cancel" class="ghost-btn">Ahora no</button><button value="ok" class="cta small">Activar con mi ubicación</button></div>
+    </form>
+  </dialog>
+
+  <div id="toast" role="status"></div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
