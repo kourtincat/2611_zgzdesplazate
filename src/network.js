@@ -28,7 +28,11 @@ function buildIndexes(net) {
     net.walk[a] = ids.map((b) => ({ id: b, d: haversine(pa, net.stops[b].p) })).filter((x) => x.d <= 200);
   }
   const lons = ids.map((id) => net.stops[id].p[0]), lats = ids.map((id) => net.stops[id].p[1]);
-  net.bounds = [[Math.min(...lons) - 0.04, Math.min(...lats) - 0.03], [Math.max(...lons) + 0.04, Math.max(...lats) + 0.03]];
+  // Margen amplio: con el Localizador abierto el mapa visible es pequeño y la cámara necesita espacio para encuadrar.
+  net.bounds = [[Math.min(...lons) - 0.14, Math.min(...lats) - 0.12], [Math.max(...lons) + 0.14, Math.max(...lats) + 0.12]];
+  // Núcleo urbano (percentiles 5–95 de las paradas): la vista general de Zaragoza sin los barrios rurales extremos.
+  const q = (a, f) => [...a].sort((x, y) => x - y)[Math.floor(a.length * f)];
+  net.core = [[q(lons, 0.05), q(lats, 0.05)], [q(lons, 0.95), q(lats, 0.95)]];
 }
 
 // Otras líneas que paran en la misma parada o en una a ≤ 150 m (correspondencias, como en el metro).
@@ -104,6 +108,14 @@ export const dayType = (date = new Date()) => ({ 0: "D", 6: "S" })[date.getDay()
 export const secOfDay = (date = new Date()) => date.getHours() * 3600 + date.getMinutes() * 60 + date.getSeconds();
 const TYPE_NAMES = { L: "laborables", S: "sábados", D: "domingos" };
 
+// ¿Ya pasó hoy el último bus por la parada j? (sirve para "apagar" paradas)
+export function stopDone(dir, type, j, nowSec) {
+  const s = dir.starts[type] || [];
+  if (!s.length) return true;
+  const last = s[s.length - 1] + dir.offsets[j];
+  return nowSec >= s[0] && nowSec > last; // antes de la primera salida (o de madrugada en líneas nocturnas) no está apagada
+}
+
 // Horario de servicio de una línea hoy: rango, si está activa ahora y cuándo empieza si no.
 export function serviceInfo(route, type, nowSec) {
   let first = Infinity, last = -Infinity, active = false, next = Infinity;
@@ -111,7 +123,7 @@ export function serviceInfo(route, type, nowSec) {
     const s = d.starts[type] || [];
     if (!s.length) continue;
     first = Math.min(first, s[0]);
-    last = Math.max(last, s[s.length - 1] + d.end);
+    last = Math.max(last, s[s.length - 1]); // última SALIDA de cabecera (horario oficial), no última llegada
     for (const st of s) {
       for (const n of [nowSec, nowSec + 86400]) if (n >= st && n <= st + d.end) active = true;
       if (st > nowSec) next = Math.min(next, st);

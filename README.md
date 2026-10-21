@@ -5,7 +5,7 @@ principal del **Localizador** (nombre interno del panel deslizable):
 
 - **Ubicar parada**: por distancia (GPS o punto del mapa), por número de poste / nombre, o por ruta. La ficha de poste
   muestra todas sus líneas, su dirección y sus tiempos (Avanza en vivo o horario), con ↻ (10 s de enfriamiento).
-- **Indicar dónde voy**: origen (GPS, mapa o buscador de calles y números) → «Selecciona a dónde vas» → opciones
+- **Indicar a dónde voy**: origen (GPS, mapa o buscador de calles y números) → «Selecciona a dónde vas» → opciones
   con hasta 1 transbordo, tiempo total y hora de llegada. Tocar el mapa o tu ubicación muestra «Empezar aquí».
 - **Explorar rutas**: todas las líneas; cada línea muestra sus dos sentidos en paralelo y resalta el elegido.
 - **Vista de línea en directo**: buses (bolas amarillas), «Subo aquí / Bajo aquí» en la lista y en el mapa,
@@ -50,7 +50,7 @@ npm run dev:mobile     # HTTPS autofirmado: ábrelo desde el móvil en https://<
 
 ## Estructura
 - `src/app.js` navegación, Localizador deslizable, cámara (`fly`, `fitTo`) y utilidades
-- `src/views/` menu · find (Ubicar parada) · poste · explore (lista y línea) · route (línea en directo) · plan (Indicar dónde voy)
+- `src/views/` menu · find (Ubicar parada) · poste · explore (lista y línea) · route (línea en directo) · plan (Indicar a dónde voy)
 - `src/planner.js` planificador con hasta 1 transbordo (frecuencias del horario + tiempos entre paradas)
 - `src/main.js` arranque y eventos globales · `src/map.js` mapa · `src/diagram.js` recorrido y línea temporal
 - `src/network.js` red, geometría 2D/3D y horario de servicio · `src/prediction.js` predicción

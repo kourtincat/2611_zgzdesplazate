@@ -1,7 +1,8 @@
-// Vista de línea en directo (Localizador modo metro): buses, tiempo en tu parada, subida/bajada,
-// tiempo estimado de trayecto, correspondencias y funciones sociales.
-import { app, $, esc, go, fly, topbar, badge, posteLabel, cooled, toast, serviceChip } from "../app.js";
-import { nearestStop, dirLabel, dayType, secOfDay, connections } from "../network.js";
+// Vista de línea (Localizador modo metro): explorar la línea con sus dos sentidos y seguirla en directo en la misma
+// pantalla. Sin parada elegida se ve la línea entera con sus buses; al tocar una parada se calcula cuándo llega,
+// subida/bajada, tiempo de trayecto, otras líneas del poste y funciones sociales.
+import { app, $, esc, go, fly, fitTo, snap, topbar, badge, posteLabel, cooled, toast, serviceChip } from "../app.js";
+import { nearestStop, dirLabel, dayType, secOfDay, connections, stopDone } from "../network.js";
 import { setLine, setStops, setTrip, setBuses, animateArrows, showPopup } from "../map.js";
 import { liveEstimate, busesFromScan, scheduledBuses, scheduledPasses, alongFromT, stopIndexFromT, stopIndexFromAlong, tFromAlong, fmtEta, fmtClock, CALIB_BACK } from "../prediction.js";
 import { renderStops, renderTimeline } from "../diagram.js";
@@ -9,6 +10,7 @@ import { fetchLive, fetchHabits, passesAt, tentative, mergeHabits, liveSignals }
 import { trip, startGps, checkIn, board, endRide, cancelCheckin } from "../trip.js";
 import { haversine } from "../geo.js";
 import { connChips } from "./explore.js";
+import { lineTimes } from "./find.js";
 
 const POLL_EVERY = 20000, SCAN_FRESH = 180000;
 const vehicle = (r) => (r.tram ? "tranvía" : "bus");
@@ -16,15 +18,16 @@ const vehicle = (r) => (r.tram ? "tranvía" : "bus");
 export default {
   name: "route",
   snap: "half",
-  enter({ routeId, dirIdx = 0, board: b = null, dest = null }) {
+  // keepView: no mover la cámara (al saltar a otra línea desde una correspondencia).
+  enter({ routeId, dirIdx = 0, board: b = null, dest = null, keepView = false }) {
     this.route = app.net.byId[routeId];
     this.dirIdx = dirIdx;
     this.open = null;
     this.dest = dest;
-    const pos = app.pick?.p || trip.gps?.p;
-    this.board = b ?? (pos ? nearestStop(app.net, this.dir(), pos).i : 0);
+    this.board = b;
+    this.snap = keepView ? null : b == null ? "low" : "half";
     this.renderShell();
-    this.change(true);
+    this.change(keepView ? "keep" : b == null ? "line" : "board");
   },
   dir() { return this.route.dirs[this.dirIdx]; },
   geom() { return app.flat ? this.dir().flat : this.dir().real; },
@@ -32,24 +35,31 @@ export default {
   renderShell() {
     const r = this.route;
     $("sheet-body").innerHTML = `
+      <div class="line-meta">${serviceChip(r)}</div>
+      ${r.dirs.length > 1 ? `<div class="label seg-title">Dirección</div>
+      <div class="dir-seg">${r.dirs.map((d, i) => { const l = dirLabel(app.net, r, d); return `<button data-dir="${i}"><small>${esc(l.from)}</small><b>→ ${esc(l.to)}</b></button>`; }).join("")}</div>` : ""}
       <div id="api-banner" class="banner" hidden>Avanza no responde. Mostramos la previsión por hábito (lo observado otros días) y el horario.</div>
+      <p id="pick-hint" class="pick-hint">Toca una parada en el recorrido o en el mapa para ver cuándo llega el ${vehicle(r)} y marcar dónde subes.</p>
+      <div class="stop-part">
       <div id="eta-card">
         <div class="eta-stop"><span class="label">Subes en</span><strong id="stop-name">—</strong><span id="stop-meta" class="meta"></span></div>
         <div class="eta-big"><span id="eta-value">—</span><span id="eta-sub" class="meta"></span></div>
       </div>
+      <div id="trip-sum" class="trip-sum" hidden></div>
+      <div class="others"><div class="block-title">Otras líneas en este poste</div><div id="others" class="poste-card flat"></div></div>
+      <p id="signal-note" class="note" hidden></p>
+      </div>
       <div class="actions-row">
-        <button id="refresh-btn" class="pill cool" data-cool="10" ${r.live ? "" : "hidden"}>↻ Actualizar</button>
+        <button id="refresh-btn" class="pill cool stop-only" data-cool="10" ${r.live ? "" : "hidden"}>↻ Actualizar poste</button>
         <button id="scan-btn" class="pill cool" data-cool="30" ${r.live ? "" : "hidden"}>Revisar línea</button>
         <span id="scan-meta" class="meta"></span>
       </div>
-      <div id="trip-sum" class="trip-sum" hidden></div>
-      <p id="signal-note" class="note" hidden></p>
       <div id="extra" class="extra"></div>
       <div class="block">
         <div class="block-title">Recorrido <span class="meta">· toca una parada para subir o bajar · círculos de color = correspondencias</span></div>
         <div id="stops"></div>
       </div>
-      <div class="block">
+      <div class="block stop-part">
         <div class="block-title">Próxima hora en tu parada</div>
         <div id="timeline"></div>
         <p id="habit-note" class="meta"></p>
@@ -58,49 +68,67 @@ export default {
     cooled($("refresh-btn"), () => { this.poll(); toast("Actualizando poste…"); });
     cooled($("scan-btn"), () => this.scan());
     $("stops").onclick = (e) => this.onStopsClick(e);
+    $("sheet-body").querySelector(".dir-seg")?.addEventListener("click", (e) => { const b = e.target.closest("[data-dir]"); if (b) this.switchDir(+b.dataset.dir); });
+    $("others").onclick = (e) => { const row = e.target.closest(".lt-row"); if (row) go("route", { routeId: row.dataset.route, dirIdx: +row.dataset.dir, board: +row.dataset.idx, keepView: true }); };
     $("extra").onclick = (e) => this.onExtraClick(e);
   },
 
+  // Cabecera: siempre a la vista el nombre de la línea y el sentido elegido.
   renderTop() {
-    const r = this.route, l = dirLabel(app.net, r, this.dir());
+    const r = this.route;
     topbar(`<button class="icon-btn" data-nav="back" aria-label="Volver">←</button>
       <div class="route-id">${badge(r, "lg")}
-        <div class="route-dir"><span class="label">${r.tram ? "Tranvía" : "Línea " + esc(r.short)} · sentido</span>
-          <span class="dir-text">${esc(l.from)} <span class="dir-arrow">→</span> <b>${esc(l.to)}</b></span></div></div>
-      <button id="swap-btn" class="swap" aria-label="Invertir sentido" ${r.dirs.length < 2 || trip.ride ? "disabled" : ""}><span>⇅</span><small>Invertir</small></button>`);
-    $("swap-btn").onclick = () => {
-      const p = app.net.stops[this.dir().stops[this.board]].p;
-      this.dirIdx = (this.dirIdx + 1) % r.dirs.length;
-      this.board = nearestStop(app.net, this.dir(), p).i; this.dest = null; this.open = null;
-      this.change(false);
-      toast(`Sentido invertido: hacia ${this.dir().headsign}`);
-    };
+        <div class="route-dir"><span class="label">${r.tram ? "Tranvía" : "Línea " + esc(r.short)} · ${esc(r.long)}</span>
+          <span class="dir-text"><span class="dir-arrow">→</span> <b>${esc(this.dir().headsign)}</b></span></div></div>
+      <button class="icon-btn" data-nav="home" aria-label="Menú principal">☰</button>`);
+    for (const b of document.querySelectorAll(".dir-seg button")) { b.classList.toggle("on", +b.dataset.dir === this.dirIdx); b.disabled = !!trip.ride; }
+  },
+  // Cambio de sentido sin mover la cámara: la parada elegida pasa a la más cercana del otro sentido.
+  switchDir(i) {
+    if (i === this.dirIdx || trip.ride) return;
+    const p = this.board != null ? app.net.stops[this.dir().stops[this.board]].p : null;
+    this.dirIdx = i;
+    this.board = p ? nearestStop(app.net, this.dir(), p).i : null;
+    this.dest = null; this.open = null;
+    this.change("keep");
   },
 
-  change(fly) {
+  change(mode) {
     const r = this.route, d = this.dir();
     if (trip.ride && trip.ride.route === r.id && trip.ride.dir === d.dir) { this.board = trip.ride.board; this.dest = trip.ride.dest; }
     Object.assign(app.params, { routeId: r.id, dirIdx: this.dirIdx, board: this.board, dest: this.dest });
     this.poll_ = null; this.scan_ = null; this.habits = []; this.live = { reports: [], trackers: [] };
     this.renderTop();
     this.redraw();
-    if (fly) this.center();
+    if (mode === "board") this.center();
+    if (mode === "line") this.fitLine();
     this.load(true);
   },
   redraw() {
     const r = this.route, d = this.dir(), g = this.geom();
-    setLine(app.map, r, [g], 0);
-    setStops(app.map, app.net, d, g, { board: this.board, dest: this.dest, xfer: (id) => connections(app.net, id, r.id).length > 0 });
+    setLine(app.map, r, r.dirs.map((x) => (app.flat ? x.flat : x.real)), this.dirIdx);
+    const type = dayType(), now = secOfDay();
+    setStops(app.map, app.net, d, g, { board: this.board, dest: this.dest, xfer: (id) => connections(app.net, id, r.id).length > 0, off: (j) => stopDone(d, type, j, now) });
     setTrip(app.map, d, g, this.board, this.dest);
     animateArrows(app.map, r, d, g);
-    const s = app.net.stops[d.stops[this.board]];
-    $("stop-name").textContent = s.name;
-    $("stop-meta").textContent = `${posteLabel(app.net, d.stops[this.board])} · parada ${this.board + 1} de ${d.stops.length}`;
+    const has = this.board != null;
+    $("sheet-body").classList.toggle("no-stop", !has);
+    if (has) {
+      const s = app.net.stops[d.stops[this.board]];
+      $("stop-name").textContent = s.name;
+      $("stop-meta").textContent = `${posteLabel(app.net, d.stops[this.board])} · parada ${this.board + 1} de ${d.stops.length}`;
+    }
     this.frame();
   },
   center() {
+    if (this.board == null) return this.fitLine();
     const p = app.net.stops[this.dir().stops[this.board]].p;
     fly({ center: p, zoom: 15, pitch: app.flat ? 0 : 55, bearing: app.flat ? 0 : -18, duration: 1000 });
+  },
+  fitLine() {
+    const c = this.geom().coords, lons = c.map((p) => p[0]), lats = c.map((p) => p[1]);
+    if (innerWidth < 900) snap("low");
+    fitTo([[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]], { duration: 900 });
   },
 
   setBoard(i) {
@@ -121,8 +149,8 @@ export default {
   },
 
   async load(withScan) {
-    const r = this.route, d = this.dir(), code = app.net.stops[d.stops[this.board]].code;
-    const [live, habits] = await Promise.all([fetchLive(r, d), r.live ? fetchHabits(r, [code], dayType()) : {}]);
+    const r = this.route, d = this.dir(), code = this.board != null ? app.net.stops[d.stops[this.board]].code : null;
+    const [live, habits] = await Promise.all([fetchLive(r, d), r.live && code ? fetchHabits(r, [code], dayType()) : {}]);
     if (!this.alive(r, d)) return;
     this.live = live; this.habits = habits[code] || [];
     await this.poll();
@@ -133,7 +161,7 @@ export default {
   async poll() {
     clearTimeout(this.timer);
     const r = this.route, d = this.dir(), u = this.board;
-    if (r.live) {
+    if (r.live && u != null) {
       const c = Math.max(0, u - CALIB_BACK);
       const get = (i) => fetch(`/api/arrivals?poste=${app.net.stops[d.stops[i]].code}`).then((x) => x.json());
       try {
@@ -163,7 +191,8 @@ export default {
     const r = this.route, d = this.dir(), u = this.board, now = Date.now(), nowSec = secOfDay(), type = dayType(), net = app.net;
     const apiDown = r.live && this.health && !this.health.up;
 
-    const pollBuses = this.poll_?.U?.ok ? liveEstimate(r, d, u, this.poll_.U.rows, this.poll_.c, this.poll_.C?.rows, this.poll_.at, now) : [];
+    const has = u != null;
+    const pollBuses = has && this.poll_?.U?.ok ? liveEstimate(r, d, u, this.poll_.U.rows, this.poll_.c, this.poll_.C?.rows, this.poll_.at, now) : [];
     const scanBuses = this.scan_ && now - this.scan_.at < SCAN_FRESH ? busesFromScan(net, r, d, this.scan_, now) : [];
     const live = scanBuses.length ? scanBuses : pollBuses;
     const users = app.social ? this.live.trackers.filter((t) => !trip.ride || t.along !== trip.ride.along).map((t) => ({ T: tFromAlong(d, t.along), along: t.along, kind: "user" })) : [];
@@ -171,7 +200,7 @@ export default {
     const me = trip.ride && trip.ride.route === r.id && trip.ride.dir === d.dir && trip.ride.along != null ? [{ along: trip.ride.along, kind: "me", label: "TÚ" }] : [];
     const etaU = (b) => (d.offsets[u] - b.T) * (b.f || 1);
     const all = [...live.map((b) => ({ ...b, kind: "live" })), ...users, ...ghosts].map((b) => ({ ...b, along: b.along ?? alongFromT(d, b.T) }));
-    for (const b of all) if (b.kind === "live" && b.T <= d.offsets[u]) { const e = etaU(b); b.label = e < 45 ? "YA" : `${Math.round(e / 60)}'`; }
+    if (has) for (const b of all) if (b.kind === "live" && b.T <= d.offsets[u]) { const e = etaU(b); b.label = e < 45 ? "YA" : `${Math.round(e / 60)}'`; }
     setBuses(app.map, this.geom(), [...all, ...me]);
 
     const etas = d.stops.map((_, j) => {
@@ -179,10 +208,21 @@ export default {
       return e.length ? `${Math.max(0, Math.round(Math.min(...e) / 60))}'` : "";
     });
     renderStops($("stops"), net, r, d, {
-      board: u, dest: this.dest, etas, open: this.open, locked: !!trip.ride,
+      board: u, dest: this.dest, etas, open: this.open, locked: !!trip.ride, off: d.stops.map((_, j) => stopDone(d, type, j, nowSec)),
       conns: d.stops.map((id) => connChips(id, r.id)),
       buses: [...all, ...me].map((b) => ({ idx: b.T != null ? stopIndexFromT(d, b.T) : stopIndexFromAlong(d, b.along), kind: b.kind, label: b.kind === "me" ? "TÚ" : "" })),
     });
+    $("scan-meta").textContent = this.scan_ ? `revisada hace ${Math.round((now - this.scan_.at) / 1000)} s · ${scanBuses.length} ${vehicle(r)}${scanBuses.length === 1 ? "" : "es"}` : "";
+    $("api-banner").hidden = !apiDown;
+    if (!has) {
+      $("foot").textContent = `GTFS ${net.feed} · ${r.live ? "buses según la última revisión de la línea" : "Tranvía: sólo horario"}`;
+      return this.renderExtra();
+    }
+
+    // Otras líneas que paran en este mismo poste, con sus tiempos (Avanza devuelve todas las líneas del poste).
+    const others = lineTimes(net, d.stops[u], this.poll_?.U?.rows).filter((x) => x.route.id !== r.id);
+    $("others").parentElement.hidden = !others.length;
+    $("others").innerHTML = others.map((x) => x.html).join("");
 
     const passes = app.social ? passesAt(this.live.reports, d, u) : [];
     const habit = mergeHabits(this.habits, tentative(passes, type));
@@ -209,7 +249,6 @@ export default {
       sub = `${r.live ? (apiDown ? "Avanza caída" : "sin bus en vivo") : "tranvía · sin dato en vivo"} · horario ${fmtClock(schedNext)}`;
     } else { $("eta-value").textContent = "—"; sub = serviceChip(r).replace(/<[^>]+>/g, ""); }
     $("eta-sub").textContent = sub;
-    $("api-banner").hidden = !apiDown;
 
     // Tiempo estimado de trayecto (subida -> bajada)
     const ts = $("trip-sum");
@@ -239,14 +278,13 @@ export default {
     $("habit-note").textContent = habit.length
       ? `Hábito observado en esta parada: ${habit.slice(0, 8).map((h) => fmtClock(h.sec)).join(" · ")}${habit.length > 8 ? "…" : ""}`
       : "Aún no hay hábito observado aquí (el sistema aprende con los snapshots diarios).";
-    $("scan-meta").textContent = this.scan_ ? `revisada hace ${Math.round((now - this.scan_.at) / 1000)} s · ${scanBuses.length} ${vehicle(r)}${scanBuses.length === 1 ? "" : "es"}` : "";
     $("foot").textContent = `GTFS ${net.feed} · ${this.poll_?.U?.ok ? `poste actualizado hace ${Math.round((now - this.poll_.at) / 1000)} s` : r.live ? "sin datos de Avanza" : "Tranvía: sólo horario"}`;
     this.renderExtra();
   },
 
   onStopsClick(e) {
     const j = e.target.closest("[data-jump]");
-    if (j) { const [rid, di, idx] = j.dataset.jump.split("|"); return go("route", { routeId: rid, dirIdx: +di, board: +idx }); }
+    if (j) { const [rid, di, idx] = j.dataset.jump.split("|"); return go("route", { routeId: rid, dirIdx: +di, board: +idx, keepView: true }); }
     const act = e.target.closest("[data-act]");
     if (act) {
       const i = +act.dataset.i;
@@ -258,6 +296,7 @@ export default {
     const row = e.target.closest(".row"); if (!row) return;
     const i = +row.dataset.i;
     if (trip.ride) { if (i > trip.ride.board) this.setDest(i); }
+    else if (this.board == null) this.setBoard(i); // la primera parada tocada es la subida
     else { this.open = this.open === i ? null : i; this.frame(); }
   },
   // Subo / Bajo aquí también desde el mapa
@@ -265,9 +304,10 @@ export default {
     if (f.layer.id !== "stops") return false;
     const i = f.properties.i, d = this.dir(), s = app.net.stops[d.stops[i]];
     if (trip.ride) { if (i > trip.ride.board) this.setDest(i); return true; }
+    if (this.board == null) { this.setBoard(i); return true; }
     showPopup(app.map, s.p, `<b>${esc(s.name)}</b><span>${posteLabel(app.net, d.stops[i])}</span>
-      <div class="pop-actions"><button data-pop="board">Subo aquí</button>${i > this.board ? `<button data-pop="dest" class="red">Bajo aquí</button>` : ""}<button data-pop="poste" class="ghost">Tiempos</button></div>`,
-      (a) => (a === "board" ? this.setBoard(i) : a === "dest" ? this.setDest(i) : go("poste", { id: d.stops[i] })));
+      <div class="pop-actions"><button data-pop="board">Subo aquí</button>${i > this.board ? `<button data-pop="dest" class="red">Bajo aquí</button>` : ""}</div>`,
+      (a) => (a === "board" ? this.setBoard(i) : this.setDest(i)));
     return true;
   },
 

@@ -29,7 +29,7 @@ export const point = (p, props = {}) => ({ type: "Feature", properties: props, g
 export async function createMap(container, bounds) {
   const map = new maplibregl.Map({
     container, style: await darkStyle(), center: [-0.889, 41.6488], zoom: 13, pitch: 55, bearing: -18, maxPitch: 75,
-    maxBounds: bounds, minZoom: 10.5, attributionControl: { compact: true },
+    maxBounds: bounds, minZoom: 9.5, attributionControl: { compact: true },
   });
   await new Promise((ok) => map.on("load", ok));
 
@@ -70,7 +70,7 @@ export async function createMap(container, bounds) {
   map.addLayer({ id: "stops", type: "circle", source: "stops",
     paint: {
       "circle-radius": ["case", key, 10, ["get", "xfer"], 7, 5],
-      "circle-color": "#fff",
+      "circle-color": ["case", ["get", "off"], "#3a3c42", "#fff"],
       "circle-stroke-color": ["case", key, TRIP_RED, "#000"],
       "circle-stroke-width": ["case", key, 5, ["get", "xfer"], 3.5, 2.5],
       "circle-pitch-alignment": "map",
@@ -107,10 +107,10 @@ export const setData = (map, source, data) => map.getSource(source).setData(data
 export function clearLayers(map) { for (const s of ["sel", "trip", "plan", "stops", "postes", "buses"]) setData(map, s); animateArrows(map, null); }
 
 // Red completa. `near` = ids de líneas a resaltar (null = todas por igual).
-export function setNetwork(map, net, near = null, visible = true) {
+export function setNetwork(map, net, near = null, visible = true, dim = 0.08) {
   map.setLayoutProperty("net", "visibility", visible ? "visible" : "none");
   setData(map, "net", fc(net.routes.flatMap((r) => r.dirs.slice(0, 1).map((d) =>
-    line(d.shape, { color: r.color, op: !near ? 0.35 : near.has(r.id) ? 0.9 : 0.08 })))));
+    line(d.shape, { color: r.color, op: !near ? 0.35 : near.has(r.id) ? 0.9 : dim })))));
 }
 
 // Línea: todos los sentidos dibujados en paralelo (offset) y el activo resaltado.
@@ -120,9 +120,9 @@ export function setLine(map, route, geoms, activeIdx, { onlyActive = false } = {
   }))).filter(Boolean)));
 }
 
-export function setStops(map, net, dir, geom, { board = null, dest = null, xfer = () => false } = {}) {
+export function setStops(map, net, dir, geom, { board = null, dest = null, xfer = () => false, off = () => false } = {}) {
   setData(map, "stops", fc(dir.stops.map((id, i) => point(geom.at(dir.along[i]), {
-    i, id, name: net.stops[id].name, board: i === board, dest: i === dest, xfer: xfer(id),
+    i, id, name: net.stops[id].name, board: i === board, dest: i === dest, xfer: xfer(id), off: off(i),
   }))));
 }
 

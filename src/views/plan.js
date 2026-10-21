@@ -1,4 +1,4 @@
-// Indicar dónde voy: origen (GPS, mapa o buscador) -> "Selecciona a dónde vas" -> opciones con hasta 1 transbordo.
+// Indicar a dónde voy: origen (GPS, mapa o buscador) -> "Selecciona a dónde vas" -> opciones con hasta 1 transbordo.
 import { app, $, esc, go, fly, fitTo, simpleTop, locate, badge, posteLabel, arrivals, snap } from "../app.js";
 import { plan } from "../planner.js";
 import { routesNear } from "../network.js";
@@ -14,7 +14,7 @@ export default {
   name: "plan",
   snap: "half",
   enter(params) {
-    simpleTop("Indicar dónde voy", "Localizador");
+    simpleTop("Indicar a dónde voy", "Localizador");
     this.sel = params.sel ?? null;
     this.render();
   },
@@ -92,10 +92,11 @@ export default {
     if (this.sel != null && this.options[this.sel]) return this.renderDetail(chips);
     const walkOnly = dist < 1500 ? `<div class="opt walk"><b>🚶 Andando ≈ ${walkMin(dist)} min</b><span class="meta">${Math.round(dist * DETOUR)} m aprox.</span></div>` : "";
     $("sheet-body").innerHTML = `${chips}<h3 class="step-title">Cómo llegar</h3>${walkOnly}
-      ${this.options.map((o, i) => `<button class="opt" data-opt="${i}">
+      ${this.options.map((o, i) => `<div class="opt" data-opt="${i}" role="button" tabindex="0">
         <div class="opt-head"><b>≈ ${Math.round(o.total / 60)} min</b><span class="meta">llegas ~${fmtClock(o.arrive)} · ${o.legs.length > 1 ? "1 transbordo" : "directo"}</span></div>
         <div class="opt-legs">🚶 ${walkMin(o.legs[0].walk)}' ${o.legs.map((l, k) => `${k ? `<span class="xfer">⇄ ${walkMin(l.walk)}'</span>` : ""}<span class="leg">${badge(l.route, "xs")}<small>${l.to - l.from} par.</small></span>`).join(" ")} 🚶 ${walkMin(o.endWalk)}'</div>
-      </button>`).join("") || `<p class="meta">No encontramos una combinación con ≤ 1 transbordo y paradas a menos de 750 m. Prueba a mover el origen o el destino.</p>`}
+        <div class="opt-foot"><button class="opt-go" data-opt="${i}">Iniciar →</button></div>
+      </div>`).join("") || `<p class="meta">No encontramos una combinación con ≤ 1 transbordo y paradas a menos de 750 m. Prueba a mover el origen o el destino.</p>`}
       <p class="meta">Estimación con frecuencias del horario y tiempos entre paradas del GTFS; el primer bus se confirma con Avanza al abrir la opción.</p>`;
     if (this.options[0]) this.drawOption(this.options[0]);
   },
@@ -111,7 +112,7 @@ export default {
         <div>${badge(l.route)} <b>hacia ${esc(d.headsign)}</b></div>
         <div class="meta">Subes en <b>${esc(net.stops[a].name)}</b> (${posteLabel(net, a)}) · espera ${k ? "aprox." : ""} <span id="wait-${k}">~${Math.round(l.wait / 60)} min</span></div>
         <div class="meta">${l.to - l.from} paradas · ≈ ${Math.max(1, Math.round((d.offsets[l.to] - d.offsets[l.from]) / 60))} min · bajas en <b>${esc(net.stops[b].name)}</b></div>
-        <button class="pill" data-live="${k}">Ver en directo</button></li>`);
+        <button class="pill" data-live="${k}">Seguir este ${l.route.tram ? "tranvía" : "bus"} en directo</button></li>`);
     });
     steps.push(`<li class="st-walk">🚶 Anda ${walkMin(o.endWalk)} min hasta <b>${esc(p.dest.label)}</b></li>`);
     $("sheet-body").innerHTML = `${chips}<button class="link-btn" data-back-opts>← Todas las opciones</button>

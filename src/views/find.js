@@ -2,6 +2,7 @@
 import { app, $, esc, go, fly, simpleTop, locate, myPos, badge, posteLabel, arrivals, cooled, setPick, serviceChip } from "../app.js";
 import { stopsNear, dayType, secOfDay } from "../network.js";
 import { setPostes } from "../map.js";
+import { lineList } from "./explore.js";
 import { scheduledPasses, fmtClock } from "../prediction.js";
 
 const norm = (s) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
@@ -110,9 +111,7 @@ export default {
 
   // ---- Por ruta ----
   renderRoute() {
-    $("find-body").innerHTML = `<p class="meta">Elige la línea; luego toca la parada para ver sus tiempos.</p>` +
-      app.net.routes.map((r) => `<button class="line-chip" data-id="${r.id}">${badge(r)}<span><span class="lc-name">${esc(r.long)}</span>${serviceChip(r)}</span></button>`).join("");
-    $("find-body").onclick = (e) => { const b = e.target.closest(".line-chip"); if (b) go("line", { routeId: b.dataset.id, dirIdx: 0 }); };
+    lineList($("find-body"));
   },
 
   onMapClick(p) {

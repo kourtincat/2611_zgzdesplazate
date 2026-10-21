@@ -7,14 +7,14 @@ export const ROW = 46;
 
 // Recorrido vertical. buses: [{ idx (fraccional), kind: live|user|schedule|me, label }]
 // conns: HTML de correspondencias por parada; simple: sin subida/bajada (explorador).
-export function renderStops(el, net, route, dir, { board = null, dest = null, buses = [], etas = [], open = null, locked = false, conns = [], simple = false }) {
+export function renderStops(el, net, route, dir, { board = null, dest = null, buses = [], etas = [], open = null, locked = false, conns = [], simple = false, off = [] }) {
   const n = dir.stops.length, H = n * ROW, y = (i) => i * ROW + ROW / 2;
   let rail = `<div class="rail" style="top:${y(0)}px;height:${y(n - 1) - y(0)}px;background:${route.color}"></div>`;
   if (!simple && dest != null && dest > board) rail += `<div class="rail trip" style="top:${y(board)}px;height:${y(dest) - y(board)}px;background:${TRIP_RED}"></div>`;
   const rows = dir.stops.map((id, i) => {
     const s = net.stops[id], tag = simple ? "" : i === board ? "SUBES" : i === dest ? "BAJAS" : "";
     const between = !simple && dest != null && i > board && i < dest;
-    return `<div class="row${tag ? " key" : ""}${between ? " on-trip" : ""}${!simple && i < board ? " past" : ""}${open === i ? " open" : ""}" data-i="${i}" style="height:${ROW}px">
+    return `<div class="row${tag ? " key" : ""}${between ? " on-trip" : ""}${!simple && i < board ? " past" : ""}${open === i ? " open" : ""}${off[i] ? " off" : ""}" data-i="${i}" style="height:${ROW}px">
       <span class="dot${tag ? " big" : ""}"></span>
       <span class="name">${esc(s.name)}${tag ? ` <em class="tag">${tag}</em>` : ""}${conns[i] ? `<span class="xchips">${conns[i]}</span>` : ""}</span>
       <span class="poste">${s.tram ? "" : `<small>poste</small>${s.code ?? ""}`}</span>

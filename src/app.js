@@ -46,18 +46,19 @@ function enter(name, params) {
 }
 
 // ---------- Localizador (panel inferior deslizable) ----------
-const SNAPS = { peek: 0.16, half: 0.52, full: 0.9 };
+const SNAPS = { peek: 0.17, low: 0.4, half: 0.55, full: 0.92 };
 let current = "half";
 export function snap(name) {
   current = name;
   document.documentElement.style.setProperty("--sheet-visible", `${SNAPS[name] * 100}dvh`);
   $("sheet").dataset.snap = name;
+  document.body.dataset.snap = name;
   padMap(SNAPS[name] * innerHeight);
 }
 // Zona visible del mapa (por encima del Localizador, o a su derecha en escritorio).
 let sheetH = 0;
 export function padMap(h = $("sheet").getBoundingClientRect().height) { sheetH = h; }
-const visible = () => (innerWidth >= 900 ? { top: 80, bottom: 20, left: 450, right: 70 } : { top: 80, bottom: sheetH + 20, left: 20, right: 70 });
+const visible = () => (innerWidth >= 900 ? { top: 30, bottom: 20, left: 450, right: 70 } : { top: 30, bottom: sheetH + 20, left: 20, right: 70 });
 // Cámara centrada en la zona visible. No se usa map.setPadding para que fitBounds no sume márgenes.
 export function fly(opts) {
   const v = visible();
@@ -83,7 +84,7 @@ export function initSheet() {
     if (!dragging) return;
     dragging = false; sheet.classList.remove("dragging");
     const moved = startY - e.clientY, frac = sheet.getBoundingClientRect().height / innerHeight;
-    if (Math.abs(moved) < 6) return snap(current === "peek" ? "half" : current === "half" ? "full" : "peek"); // toque = alterna
+    if (Math.abs(moved) < 6) return e.target.closest(".grip") && snap(current === "full" ? "peek" : current === "peek" ? "half" : "full"); // toque en el asa = alterna
     snap(Object.entries(SNAPS).sort((a, b) => Math.abs(a[1] - frac) - Math.abs(b[1] - frac))[0][0]);
   };
   grip.addEventListener("pointerup", end);
@@ -137,13 +138,14 @@ export const posteLabel = (net, id) => (net.stops[id].tram ? "Parada de tranvía
 export function serviceChip(route) {
   const s = serviceInfo(route, dayType(), secOfDay());
   if (!s.today) return `<span class="svc off">○ ${s.text}</span>`;
-  const range = `${fmtClock(s.first)}–${fmtClock(s.last)}`;
+  // Rango = salidas oficiales desde cabecera (primera y última salida), no llegadas.
+  const range = `salidas ${fmtClock(s.first)}–${fmtClock(s.last)}`;
   if (s.active) return `<span class="svc on">● En servicio · ${range}</span>`;
-  if (s.next != null) return `<span class="svc off">○ Empieza ${fmtClock(s.next)} · ${range}</span>`;
-  return `<span class="svc off">○ Terminó por hoy · ${range}</span>`;
+  if (s.next != null) return `<span class="svc off">○ Primera salida ${fmtClock(s.next)} · ${range}</span>`;
+  return `<span class="svc off">○ Terminó por hoy · última salida ${fmtClock(s.last)}</span>`;
 }
 
-// Cabecera simple: ← título
+// Cabecera del Localizador (va dentro del panel): ← título ☰
 export function topbar(html) { $("topbar").innerHTML = html; }
 export const simpleTop = (title, sub = "") => topbar(`<button class="icon-btn" data-nav="back" aria-label="Volver">←</button>
   <div class="top-title"><span class="label">${esc(sub)}</span><strong>${esc(title)}</strong></div>

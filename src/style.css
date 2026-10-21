@@ -29,7 +29,7 @@ input { font: inherit; }
 .sched { color: var(--mute); font-family: var(--mono); font-size: 12px; }
 
 /* ---------- Vistas ---------- */
-body[data-view="welcome"] #topbar, body[data-view="welcome"] .map-tools, body[data-view="welcome"] #sheet { display: none; }
+body[data-view="welcome"] .map-tools, body[data-view="welcome"] #sheet { display: none; }
 
 body:not([data-view="welcome"]) #welcome { display: none; }
 
@@ -49,10 +49,10 @@ body:not([data-view="welcome"]) #welcome { display: none; }
 .link-btn { background: none; border: 0; color: var(--mute); padding: 6px 0; font-weight: 700; }
 
 /* ---------- Cabecera ---------- */
-#topbar {
-  position: fixed; top: 0; left: 0; right: 0; z-index: 3; display: flex; align-items: stretch; gap: 8px; min-height: 66px;
-  padding: max(10px, env(safe-area-inset-top)) 12px 12px; background: linear-gradient(#000 65%, transparent);
-}
+/* La cabecera vive dentro del Localizador, encima de su contenido, y también sirve para arrastrarlo. */
+.sheet-head { display: flex; align-items: stretch; gap: 8px; min-height: 48px; padding: 6px 12px 8px; border-bottom: 1px solid var(--rule); }
+.sheet-head:empty { display: none; }
+.sheet-head .brand { padding: 4px 4px; }
 .brand { display: flex; align-items: center; gap: 10px; font-size: 18px; letter-spacing: -.3px; }
 .brand b { font-weight: 900; }
 .brand em { font-style: normal; color: var(--mute); font-weight: 500; }
@@ -79,7 +79,7 @@ body:not([data-view="welcome"]) #welcome { display: none; }
 .lb.lg { min-width: 46px; height: 40px; font-size: 20px; }
 .lb.xs { min-width: 0; height: 20px; font-size: 11px; padding: 0 5px; border-radius: 5px; margin: 1px 2px 1px 0; }
 
-.map-tools { position: fixed; z-index: 3; right: 12px; top: 80px; display: flex; flex-direction: column; gap: 6px; }
+.map-tools { position: fixed; z-index: 3; right: 12px; top: max(12px, env(safe-area-inset-top)); display: flex; flex-direction: column; gap: 6px; }
 .pill { height: 36px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--rule); background: rgba(11,11,13,.88); font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: .5px; position: relative; overflow: hidden; }
 .pill.icon { width: 36px; padding: 0; font-size: 17px; }
 .map-tools .pill { width: 44px; height: 42px; padding: 0; backdrop-filter: blur(6px); font-size: 14px; }
@@ -274,16 +274,45 @@ dialog h2 { margin: 6px 0 10px; font-size: 22px; font-weight: 900; letter-spacin
 .dlg-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 .dlg-actions .ghost-btn { width: auto; }
 
-#toast { position: fixed; left: 50%; top: 84px; z-index: 20; transform: translate(-50%, -20px); opacity: 0; pointer-events: none; background: var(--ink); color: #000; padding: 10px 16px; border-radius: 10px; font-weight: 700; font-size: 14px; max-width: calc(100vw - 32px); transition: .25s; }
+#toast { position: fixed; left: 50%; top: 16px; z-index: 20; transform: translate(-50%, -20px); opacity: 0; pointer-events: none; background: var(--ink); color: #000; padding: 10px 16px; border-radius: 10px; font-weight: 700; font-size: 14px; max-width: calc(100vw - 32px); transition: .25s; }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
 
 /* ---------- Escritorio: Localizador como panel lateral ---------- */
 @media (min-width: 900px) {
-  #sheet { top: 84px; right: auto; left: 12px; bottom: 12px; width: 420px; height: auto !important; border-radius: 16px; }
-  .grip-zone { display: none; }
+  #sheet { top: 12px; right: auto; left: 12px; bottom: 12px; width: 420px; height: auto !important; border-radius: 16px; }
+  .grip-zone { padding-top: 12px; cursor: default; }
+  .grip-zone .grip { display: none; }
   #sheet-body { padding-top: 12px; }
-  #topbar { width: 444px; right: auto; background: none; }
   .start-here { top: auto; bottom: 16px; left: calc(100% + 16px); transform: none; }
 }
 @media (max-width: 420px) { #eta-value { font-size: 32px; } }
 .icon-refresh { min-width: 52px; height: 44px; font-size: 22px; padding: 0 10px; }
+
+/* Paradas sin más buses hoy */
+.row.off .name { color: #4b4e55; text-decoration: line-through; text-decoration-color: #333; }
+.row.off .dot { background: #333; border-color: #111; }
+.row.off .poste { opacity: .4; }
+/* Ver sólo activas */
+.list-tools { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 2px 0 8px; }
+.toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; cursor: pointer; }
+.toggle input { width: 18px; height: 18px; accent-color: var(--ok); }
+.list-sep { margin: 12px 0 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; color: var(--mute); }
+.line-chip.inactive { opacity: .5; }
+/* Dirección */
+.seg-title { margin: 10px 0 6px; }
+/* Otras líneas en el poste */
+.others { margin: 8px 0; }
+/* Opciones de trayecto */
+.opt-foot { display: flex; justify-content: flex-end; }
+.opt-go { height: 36px; padding: 0 16px; border: 0; border-radius: 9px; background: var(--ink); color: #000; font-weight: 900; font-size: 14px; }
+.opt[data-opt] { cursor: pointer; }
+body[data-snap="full"] .map-tools { display: none; }
+@media (min-width: 900px) { body[data-snap="full"] .map-tools { display: flex; } }
+
+/* Vista de línea unificada: sin parada elegida sólo se ve la línea */
+.pick-hint { display: none; margin: 10px 0; padding: 10px 12px; border-radius: 10px; border: 1px dashed #444; color: #c6c9cf; font-size: 13px; }
+.no-stop .pick-hint { display: block; }
+.no-stop .stop-part, .no-stop .stop-only { display: none !important; }
+.route-dir .label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dir-seg button:disabled { opacity: .5; }
+.welcome-title { font-size: 22px; font-weight: 900; letter-spacing: -.5px; margin: 2px 0 4px; }

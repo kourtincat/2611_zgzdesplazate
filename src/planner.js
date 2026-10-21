@@ -54,7 +54,9 @@ export function plan(net, origin, dest, now = new Date()) {
   // Mejores opciones, dando preferencia a los directos (un transbordo debe ahorrar ≥ 5 min).
   const list = [...candidates.values()].map((it) => ({ ...it, score: it.total + (it.legs.length - 1) * 300 })).sort((a, b) => a.score - b.score);
   const out = [], usedFirst = new Set();
+  const bestDirect = Math.min(...list.filter((it) => it.legs.length === 1).map((it) => it.total), Infinity);
   for (const it of list) {
+    if (it.legs.length > 1 && it.total > bestDirect - 300) continue; // transbordo sólo si ahorra ≥ 5 min
     const sig = it.legs.map((l) => l.route.id).join(">");
     if (usedFirst.has(sig)) continue;
     usedFirst.add(sig);

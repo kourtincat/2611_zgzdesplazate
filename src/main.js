@@ -8,11 +8,11 @@ import { haversine } from "./geo.js";
 import menu from "./views/menu.js";
 import find from "./views/find.js";
 import poste from "./views/poste.js";
-import { explore, line } from "./views/explore.js";
+import { explore } from "./views/explore.js";
 import route from "./views/route.js";
 import plan from "./views/plan.js";
 
-app.views = { menu, find, poste, explore, line, route, plan };
+app.views = { menu, find, poste, explore, route, plan };
 
 if (!pref.get("pw-welcomed")) document.body.dataset.view = "welcome";
 
@@ -44,7 +44,7 @@ $("dim-btn").onclick = (e) => {
 $("center-btn").onclick = () => {
   if (app.view?.center) return app.view.center();
   const me = myPos();
-  if (me) fly({ center: me, zoom: 15.5 }); else fitTo(net.bounds, { maxZoom: 13 });
+  if (me) fly({ center: me, zoom: 15.5 }); else fitTo(net.core, { maxZoom: 13 });
 };
 $("gps-btn").onclick = async () => { const fix = await locate(); if (fix) { fly({ center: fix.p, zoom: 16 }); setPick(fix.p, "Mi ubicación"); } };
 
