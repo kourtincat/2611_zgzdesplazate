@@ -6,30 +6,31 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&l
 export const ROW = 46;
 
 // Recorrido vertical. buses: [{ idx (fraccional), kind: live|user|schedule|me, label }]
-export function renderStops(el, net, route, dir, { board, dest, buses, etas, open, locked }) {
+// conns: HTML de correspondencias por parada; simple: sin subida/bajada (explorador).
+export function renderStops(el, net, route, dir, { board = null, dest = null, buses = [], etas = [], open = null, locked = false, conns = [], simple = false }) {
   const n = dir.stops.length, H = n * ROW, y = (i) => i * ROW + ROW / 2;
   let rail = `<div class="rail" style="top:${y(0)}px;height:${y(n - 1) - y(0)}px;background:${route.color}"></div>`;
-  if (dest != null && dest > board) rail += `<div class="rail trip" style="top:${y(board)}px;height:${y(dest) - y(board)}px;background:${TRIP_RED}"></div>`;
+  if (!simple && dest != null && dest > board) rail += `<div class="rail trip" style="top:${y(board)}px;height:${y(dest) - y(board)}px;background:${TRIP_RED}"></div>`;
   const rows = dir.stops.map((id, i) => {
-    const s = net.stops[id], tag = i === board ? "SUBES" : i === dest ? "BAJAS" : "";
-    const between = dest != null && i > board && i < dest;
-    return `<div class="row${tag ? " key" : ""}${between ? " on-trip" : ""}${i < board ? " past" : ""}${open === i ? " open" : ""}" data-i="${i}" style="height:${ROW}px">
+    const s = net.stops[id], tag = simple ? "" : i === board ? "SUBES" : i === dest ? "BAJAS" : "";
+    const between = !simple && dest != null && i > board && i < dest;
+    return `<div class="row${tag ? " key" : ""}${between ? " on-trip" : ""}${!simple && i < board ? " past" : ""}${open === i ? " open" : ""}" data-i="${i}" style="height:${ROW}px">
       <span class="dot${tag ? " big" : ""}"></span>
-      <span class="name">${esc(s.name)}${tag ? ` <em class="tag">${tag}</em>` : ""}</span>
-      <span class="poste">${s.code ?? ""}</span>
+      <span class="name">${esc(s.name)}${tag ? ` <em class="tag">${tag}</em>` : ""}${conns[i] ? `<span class="xchips">${conns[i]}</span>` : ""}</span>
+      <span class="poste">${s.tram ? "" : `<small>poste</small>${s.code ?? ""}`}</span>
       <span class="eta-mini">${etas[i] ?? ""}</span>
     </div>`;
   });
   // Acciones de la fila tocada: flotan sobre la lista para no mover el recorrido.
-  const actions = open != null && !locked
+  const actions = open != null && !locked && !simple
     ? `<div class="row-actions" style="top:${y(open) + ROW / 2 + 4}px"><button data-act="board" data-i="${open}">Subo aquí</button>${open > board ? `<button data-act="dest" data-i="${open}">Bajo aquí</button>` : ""}${open === dest ? `<button data-act="nodest" data-i="${open}">Quitar bajada</button>` : ""}</div>` : "";
   const balls = buses.map((b) => `<span class="ball ${b.kind}" style="top:${y(b.idx)}px">${b.label ? `<b>${esc(b.label)}</b>` : ""}</span>`).join("");
   el.innerHTML = `<div class="stops-wrap" style="height:${H + 50}px">${rail}${rows.join("")}${balls}${actions}</div>`;
 }
 
-// Línea temporal de los próximos `span` segundos en tu parada.
+// Línea temporal de los próximos `span` segundos en tu parada. users = null oculta la fila social.
 export function renderTimeline(el, route, nowSec, span, { live = [], sched = [], habit = [], users = [] }) {
-  const W = 320, L = 66, R = 10, rows = [["Avanza", 20], ["Horario", 44], ["Hábito", 68], ["Usuarios", 92]], H = 104;
+  const W = 320, L = 66, R = 10, rows = [["Avanza", 20], ["Horario", 44], ["Hábito", 68], ...(users ? [["Usuarios", 92]] : [])], H = users ? 104 : 80;
   const x = (t) => L + ((t - nowSec) / span) * (W - L - R);
   const inWin = (t) => t >= nowSec - 30 && t <= nowSec + span;
   let s = `<svg viewBox="0 0 ${W} ${H + 12}" width="100%" role="img" aria-label="Próximos pasos">`;
@@ -44,6 +45,6 @@ export function renderTimeline(el, route, nowSec, span, { live = [], sched = [],
     s += `<circle cx="${x(h.sec)}" cy="68" r="${Math.min(8, 3 + h.n / 2)}" fill="none" stroke="#ffd400" stroke-width="2" stroke-dasharray="3 2"/>`;
     s += `<text x="${x(h.sec)}" y="60" text-anchor="middle" class="tl-crowd">${fmtClock(h.sec)}</text>`;
   });
-  users.filter(inWin).forEach((t) => (s += `<circle cx="${x(t)}" cy="92" r="6" fill="#ffd400" stroke="#fff" stroke-width="2.5"/>`));
+  (users || []).filter(inWin).forEach((t) => (s += `<circle cx="${x(t)}" cy="92" r="6" fill="#ffd400" stroke="#fff" stroke-width="2.5"/>`));
   el.innerHTML = s + "</svg>";
 }

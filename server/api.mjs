@@ -20,6 +20,27 @@ function boot() {
   startRecorder(net);
 }
 
+// Buscador de calles y números (OpenStreetMap vía Photon), limitado al área de Zaragoza. Caché 1 h.
+const GEO_BBOX = "-1.12,41.52,-0.70,41.80";
+const geoCache = new Map();
+async function geocode(text) {
+  const key = text.toLowerCase();
+  const hit = geoCache.get(key);
+  if (hit && Date.now() - hit.t < 3600000) return hit.v;
+  const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(text + " Zaragoza")}&bbox=${GEO_BBOX}&limit=8`, {
+    headers: { "User-Agent": "ZGZ-Movilidad-dev/0.3" }, signal: AbortSignal.timeout(8000),
+  });
+  const data = await res.json();
+  const v = (data.features || []).map((f) => {
+    const p = f.properties;
+    const street = [p.street || p.name, p.housenumber].filter(Boolean).join(" ");
+    const title = p.name && p.street ? p.name : street || p.name;
+    return { title, sub: [p.name && p.street ? street : null, p.district || p.locality, p.city].filter(Boolean).join(" · "), p: f.geometry.coordinates };
+  }).filter((x, i, a) => x.title && a.findIndex((y) => y.title === x.title && y.sub === x.sub) === i);
+  geoCache.set(key, { t: Date.now(), v });
+  return v;
+}
+
 const json = (res, code, body) => { res.statusCode = code; res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify(body)); };
 const readBody = (req) => new Promise((ok) => { let b = ""; req.on("data", (c) => (b += c)); req.on("end", () => { try { ok(JSON.parse(b || "{}")); } catch { ok({}); } }); });
 
@@ -46,6 +67,11 @@ export async function handleApi(req, res, next) {
       const out = {};
       for (const p of (q("postes") || "").split(",")) if (habits[`${line}|${p}|${type}`]) out[p] = habits[`${line}|${p}|${type}`];
       return json(res, 200, out);
+    }
+    if (url.pathname === "/api/geocode") {
+      const text = (q("q") || "").trim();
+      if (text.length < 3) return json(res, 200, []);
+      return json(res, 200, await geocode(text));
     }
     if (url.pathname === "/api/live") {
       const route = q("route"), dir = +q("dir"), since = Date.now() - 60 * 864e5;

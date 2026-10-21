@@ -1,8 +1,16 @@
-# ProjectWeb · Bus Zaragoza en modo "metro"
+# ZGZ Movilidad Hecha Fácil
 
-Web móvil (MapLibre GL JS + Vite) para el bus y el tranvía de Zaragoza:
-bienvenida → permiso de ubicación (opcional) → líneas cercanas a ti o a un pin → ruta con sentido, buses en vivo,
-recorrido tipo metro con subida/bajada y funciones extra anónimas ("estoy en la parada", "he cogido el bus").
+Web móvil (MapLibre GL JS + Vite) para el bus y el tranvía de Zaragoza. Al abrir (F5 incluido) se muestra el menú
+principal del **Localizador** (nombre interno del panel deslizable):
+
+- **Ubicar parada**: por distancia (GPS o punto del mapa), por número de poste / nombre, o por ruta. La ficha de poste
+  muestra todas sus líneas, su dirección y sus tiempos (Avanza en vivo o horario), con ↻ (10 s de enfriamiento).
+- **Indicar dónde voy**: origen (GPS, mapa o buscador de calles y números) → «Selecciona a dónde vas» → opciones
+  con hasta 1 transbordo, tiempo total y hora de llegada. Tocar el mapa o tu ubicación muestra «Empezar aquí».
+- **Explorar rutas**: todas las líneas; cada línea muestra sus dos sentidos en paralelo y resalta el elegido.
+- **Vista de línea en directo**: buses (bolas amarillas), «Subo aquí / Bajo aquí» en la lista y en el mapa,
+  tiempo estimado de trayecto, correspondencias (círculos de color) y funciones sociales (se pueden desactivar).
+- Mapa limitado al área de la red, con 2D/3D, Centrar y Mi ubicación.
 
 ## Arrancar (PowerShell)
 ```
@@ -20,6 +28,7 @@ npm run dev:mobile     # HTTPS autofirmado: ábrelo desde el móvil en https://<
 | "Revisar línea" | Igual que `zaragoza.avanzagrupo.com/lineas-y-horarios`: lista oficial de postes + `tiempos_de_llegada` de cada uno → `/api/scan` (30 s de enfriamiento) |
 | Snapshots | El servidor guarda cada 30 s los tiempos conocidos en `data/snapshots/AAAA-MM-DD.ndjson` y los pasos detectados en `…passes.ndjson` |
 | Modelo de hábitos | `data/model/habits.json`, recalculado cada día con los pasos de los últimos 28 días |
+| Buscador de calles | OpenStreetMap vía Photon, limitado a Zaragoza → `/api/geocode` (caché 1 h) |
 | Avisos de usuarios | `data/reports.json` (sólo línea, parada, hora y estado). `npm run seed:reports` crea avisos DEMO |
 
 > El GTFS de bus actual cubre hasta 05/10/2026; después se usan los horarios del último miércoles/sábado/domingo con servicio.
@@ -40,7 +49,10 @@ npm run dev:mobile     # HTTPS autofirmado: ábrelo desde el móvil en https://<
   Si terminas el viaje sin verificar, el aviso se descarta.
 
 ## Estructura
-- `src/main.js` vistas y UI · `src/map.js` mapa · `src/diagram.js` recorrido y línea temporal
+- `src/app.js` navegación, Localizador deslizable, cámara (`fly`, `fitTo`) y utilidades
+- `src/views/` menu · find (Ubicar parada) · poste · explore (lista y línea) · route (línea en directo) · plan (Indicar dónde voy)
+- `src/planner.js` planificador con hasta 1 transbordo (frecuencias del horario + tiempos entre paradas)
+- `src/main.js` arranque y eventos globales · `src/map.js` mapa · `src/diagram.js` recorrido y línea temporal
 - `src/network.js` red, geometría 2D/3D y horario de servicio · `src/prediction.js` predicción
 - `src/crowd.js` hábitos y señales de usuarios · `src/trip.js` funciones extra (GPS)
 - `server/api.mjs` rutas API · `server/avanza.mjs` acceso a Avanza · `server/recorder.mjs` snapshots y hábitos · `server/trips.mjs` validación

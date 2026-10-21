@@ -7,7 +7,51 @@ export async function loadNetwork() {
   const net = await (await fetch("/data/network.json")).json();
   for (const r of net.routes) for (const d of r.dirs) prepareDir(net, d);
   net.byId = Object.fromEntries(net.routes.map((r) => [r.id, r]));
+  buildIndexes(net);
   return net;
+}
+
+// Índices: líneas por parada, postes por código, vecinas a pie (correspondencias) y límites del mapa.
+function buildIndexes(net) {
+  net.byStop = {};
+  net.byCode = {};
+  for (const r of net.routes) r.dirs.forEach((d, dirIdx) => d.stops.forEach((id, idx) => {
+    (net.byStop[id] ??= []).push({ route: r, dirIdx, idx });
+    if (!r.tram && net.stops[id].code) net.byCode[net.stops[id].code] = id;
+  }));
+  const ids = Object.keys(net.byStop);
+  for (const id of ids) net.stops[id].tram = net.byStop[id].every((x) => x.route.tram);
+  // Vecinas a ≤ 200 m: sirven para transbordos y para mostrar correspondencias.
+  net.walk = {};
+  for (const a of ids) {
+    const pa = net.stops[a].p;
+    net.walk[a] = ids.map((b) => ({ id: b, d: haversine(pa, net.stops[b].p) })).filter((x) => x.d <= 200);
+  }
+  const lons = ids.map((id) => net.stops[id].p[0]), lats = ids.map((id) => net.stops[id].p[1]);
+  net.bounds = [[Math.min(...lons) - 0.04, Math.min(...lats) - 0.03], [Math.max(...lons) + 0.04, Math.max(...lats) + 0.03]];
+}
+
+// Otras líneas que paran en la misma parada o en una a ≤ 150 m (correspondencias, como en el metro).
+export function connections(net, stopId, exceptRouteId) {
+  const seen = new Map();
+  for (const n of net.walk[stopId] || []) if (n.d <= 150) for (const x of net.byStop[n.id]) {
+    if (x.route.id === exceptRouteId) continue;
+    if (!seen.has(x.route.id) || seen.get(x.route.id).d > n.d) seen.set(x.route.id, { route: x.route, stopId: n.id, dirIdx: x.dirIdx, idx: x.idx, d: n.d });
+  }
+  return [...seen.values()];
+}
+
+// Paradas cerca de un punto (ordenadas por distancia).
+export function stopsNear(net, p, radius = 500, limit = 12) {
+  return Object.keys(net.byStop).map((id) => ({ id, d: haversine(p, net.stops[id].p) }))
+    .filter((x) => x.d <= radius).sort((a, b) => a.d - b.d).slice(0, limit);
+}
+
+// Frecuencia de paso aproximada (s) de un sentido alrededor de una hora; null si no hay servicio en la próxima hora.
+export function headway(dir, type, nowSec) {
+  const s = (dir.starts[type] || []).filter((t) => t >= nowSec - 3600 && t <= nowSec + 3600);
+  if (!s.some((t) => t >= nowSec - dir.end)) return null;
+  return Math.max(120, Math.min(3600, 7200 / Math.max(1, s.length)));
 }
 
 function prepareDir(net, d) {
