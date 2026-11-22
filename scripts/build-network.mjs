@@ -1,6 +1,7 @@
 // Convierte el GTFS de Avanza Zaragoza (data/gtfs-raw) en un JSON compacto para el front:
 //   public/data/network.json  ->  líneas, sentidos, trazado, paradas, tiempos entre paradas y salidas por tipo de día.
-// Uso: npm run build:data   (descarga el GTFS si no está)
+// Uso: npm run build:data     (descarga el GTFS si no está)
+//      npm run update:data    (vuelve a descargar la última versión publicada y regenera)
 import fs from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
@@ -9,9 +10,11 @@ import { execSync } from "node:child_process";
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/(\w:)/, "$1")), "..");
 const RAW = path.join(ROOT, "data", "gtfs-raw");
 const OUT = path.join(ROOT, "public", "data", "network.json");
-const GTFS_URL = "https://files.mobilitydatabase.org/mdb-2773/mdb-2773-202607010006/mdb-2773-202607010006.zip";
+// "latest" siempre apunta a la última versión que Mobility Database ha recogido del Punto de Acceso Nacional (feed 1176).
+const GTFS_URL = "https://files.mobilitydatabase.org/mdb-2773/latest.zip";
+const REFRESH = process.argv.includes("--refresh");
 
-if (!fs.existsSync(path.join(RAW, "stop_times.txt"))) {
+if (REFRESH || !fs.existsSync(path.join(RAW, "stop_times.txt"))) {
   fs.mkdirSync(RAW, { recursive: true });
   console.log("Descargando GTFS…");
   execSync(`curl -s -L -o "${path.join(RAW, "gtfs.zip")}" ${GTFS_URL}`, { stdio: "inherit" });
@@ -190,5 +193,5 @@ const routeList = Object.values(outRoutes)
 
 fs.mkdirSync(path.dirname(OUT), { recursive: true });
 const feed = fs.readFileSync(path.join(RAW, "feed_info.txt"), "utf8").split(/\r?\n/)[1].split(",");
-fs.writeFileSync(OUT, JSON.stringify({ feed: feed[5], repDates: Object.keys(repUsed).sort(), routes: routeList, stops: outStops }));
+fs.writeFileSync(OUT, JSON.stringify({ feed: feed[5], feedEnd: feed[4], repDates: Object.keys(repUsed).sort(), routes: routeList, stops: outStops }));
 console.log(`OK -> ${path.relative(ROOT, OUT)} · ${routeList.length} líneas · ${usedStops.size} paradas · ${(fs.statSync(OUT).size / 1024).toFixed(0)} KB`);

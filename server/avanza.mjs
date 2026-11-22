@@ -8,18 +8,29 @@ const PASOBUS = "https://zaragoza-pasobus.avanzagrupo.com/frm_esquemaparadatime.
 const UA = { "User-Agent": "ProjectWeb-dev/0.2" };
 
 export const health = { lastOk: 0, lastFail: 0, fails: 0, lastError: null };
+// Fallos por poste: hay postes que Avanza no sirve durante días (desvíos, obras: p. ej. 262-265 dan HTTP 500 también
+// en su web). Un poste roto no debe marcar como caída toda la API.
+const posteFails = new Map(); // poste -> { fails, lastFail, lastError }
 const listeners = [];
 export const onObservation = (fn) => listeners.push(fn);
 
 function ok(poste, rows) {
   health.lastOk = Date.now(); health.fails = 0;
+  posteFails.delete(poste);
   listeners.forEach((fn) => fn(poste, rows, Date.now()));
 }
-function fail(e) { health.lastFail = Date.now(); health.fails++; health.lastError = String(e.message || e); }
+function fail(e, p) {
+  const now = Date.now(), msg = String(e.message || e);
+  health.lastFail = now; health.fails++; health.lastError = msg;
+  if (p != null) { const f = posteFails.get(p) || { fails: 0 }; posteFails.set(p, { fails: f.fails + 1, lastFail: now, lastError: msg }); }
+}
+// Caída global = varios fallos seguidos y ningún acierto en 2 min. El grabador consulta varios postes cada 30 s,
+// así que mientras Avanza funcione habrá aciertos recientes aunque algún poste concreto falle.
 export const healthStatus = () => ({
   ...health,
-  up: health.fails < 3 && (health.lastOk >= health.lastFail || Date.now() - health.lastFail > 120000),
+  up: health.fails < 3 || Date.now() - health.lastOk < 120000,
 });
+export const posteStatus = (p) => posteFails.get(p) || { fails: 0 };
 
 const strip = (s) => s.replace(/<svg[\s\S]*?<\/svg>/g, "").replace(/<[^>]*>/g, " ").replace(/&#8211;|&hyphen;/g, "-").replace(/\s+/g, " ").trim();
 const toMin = (txt) => { const m = txt.match(/(\d+)\s*min/i); return m ? +m[1] : /parada/i.test(txt) ? 0 : null; };
@@ -56,7 +67,7 @@ export function poste(p) {
       const rows = parsePasobus(new TextDecoder("iso-8859-1").decode(await res.arrayBuffer()));
       ok(p, rows);
       return { poste: p, at: Date.now(), ok: true, rows };
-    } catch (e) { fail(e); return { poste: p, at: Date.now(), ok: false, rows: [] }; }
+    } catch (e) { fail(e, p); return { poste: p, at: Date.now(), ok: false, rows: [], error: String(e.message || e) }; }
   });
 }
 

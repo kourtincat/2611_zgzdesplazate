@@ -7,12 +7,13 @@
 //   POST /api/checkin | /api/board | /api/trip/:id/progress | /api/trip/:id/end   (ver server/trips.mjs)
 import fs from "node:fs";
 import path from "node:path";
-import { poste, scanLine, healthStatus } from "./avanza.mjs";
+import { poste, scanLine, healthStatus, posteStatus } from "./avanza.mjs";
 import { startRecorder, watch, habits } from "./recorder.mjs";
 import { initTrips, checkin, board, progress, end, liveTrackers, loadReports } from "./trips.mjs";
 
 let started = false;
-function boot() {
+// Arranca red, viajes y grabador. En dev se llama en la primera petición /api; en producción, al arrancar (server/index.mjs).
+export function boot() {
   if (started) return; started = true;
   const net = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), "public", "data", "network.json"), "utf8"));
   net.byId = Object.fromEntries(net.routes.map((r) => [r.id, r]));
@@ -55,7 +56,7 @@ export async function handleApi(req, res, next) {
       const p = parseInt(q("poste"));
       if (!p) return json(res, 400, { error: "poste requerido" });
       watch(p);
-      return json(res, 200, { ...(await poste(p)), health: healthStatus() });
+      return json(res, 200, { ...(await poste(p)), health: healthStatus(), posteFails: posteStatus(p).fails });
     }
     if (url.pathname === "/api/scan") {
       const postes = (q("postes") || "").split(",").map(Number).filter(Boolean);

@@ -2,7 +2,7 @@
 // pantalla. Sin parada elegida se ve la línea entera con sus buses; al tocar una parada se calcula cuándo llega,
 // subida/bajada, tiempo de trayecto, otras líneas del poste y funciones sociales.
 import { app, $, esc, go, fly, fitTo, snap, topbar, badge, posteLabel, cooled, toast, serviceChip } from "../app.js";
-import { nearestStop, dirLabel, dayType, secOfDay, connections, stopDone } from "../network.js";
+import { nearestStop, dirLabel, dayType, secOfDay, connections, stopDone, feedLabel } from "../network.js";
 import { setLine, setStops, setTrip, setBuses, animateArrows, showPopup } from "../map.js";
 import { liveEstimate, busesFromScan, scheduledBuses, scheduledPasses, alongFromT, stopIndexFromT, stopIndexFromAlong, tFromAlong, fmtEta, fmtClock, CALIB_BACK } from "../prediction.js";
 import { renderStops, renderTimeline } from "../diagram.js";
@@ -215,7 +215,7 @@ export default {
     $("scan-meta").textContent = this.scan_ ? `revisada hace ${Math.round((now - this.scan_.at) / 1000)} s · ${scanBuses.length} ${vehicle(r)}${scanBuses.length === 1 ? "" : "es"}` : "";
     $("api-banner").hidden = !apiDown;
     if (!has) {
-      $("foot").textContent = `GTFS ${net.feed} · ${r.live ? "buses según la última revisión de la línea" : "Tranvía: sólo horario"}`;
+      $("foot").textContent = `${feedLabel(net, r)} · ${r.live ? "buses según la última revisión de la línea" : "Tranvía: sólo horario"}`;
       return this.renderExtra();
     }
 
@@ -278,7 +278,7 @@ export default {
     $("habit-note").textContent = habit.length
       ? `Hábito observado en esta parada: ${habit.slice(0, 8).map((h) => fmtClock(h.sec)).join(" · ")}${habit.length > 8 ? "…" : ""}`
       : "Aún no hay hábito observado aquí (el sistema aprende con los snapshots diarios).";
-    $("foot").textContent = `GTFS ${net.feed} · ${this.poll_?.U?.ok ? `poste actualizado hace ${Math.round((now - this.poll_.at) / 1000)} s` : r.live ? "sin datos de Avanza" : "Tranvía: sólo horario"}`;
+    $("foot").textContent = `${feedLabel(net, r)} · ${this.poll_?.U?.ok ? `poste actualizado hace ${Math.round((now - this.poll_.at) / 1000)} s` : r.live ? "sin datos de Avanza" : "Tranvía: sólo horario"}`;
     this.renderExtra();
   },
 

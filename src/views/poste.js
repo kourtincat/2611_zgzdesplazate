@@ -41,7 +41,7 @@ export default {
   },
   render(r) {
     $("poste-lines").innerHTML = lineTimes(app.net, this.id, r?.rows).map((x) => x.html).join("");
-    $("poste-at").textContent = r ? (r.ok ? `Avanza · actualizado ${new Date(r.at).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` : "Avanza no responde: mostrando horario") : app.net.stops[this.id].tram ? "Tranvía: horario previsto" : "Consultando Avanza…";
+    $("poste-at").textContent = r ? (r.ok ? `Avanza · actualizado ${new Date(r.at).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` : r.health?.up ? "Avanza no da tiempos de este poste ahora (¿desvío u obras?): mostrando horario" : "Avanza no responde: mostrando horario") : app.net.stops[this.id].tram ? "Tranvía: horario previsto" : "Consultando Avanza…";
   },
   async load() {
     const st = app.net.stops[this.id];

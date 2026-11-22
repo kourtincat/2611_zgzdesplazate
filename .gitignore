@@ -1,3 +1,4 @@
 node_modules/
-dist/
-data/
+/dist/
+# Datos generados en local (snapshots del grabador, avisos de usuarios, GTFS crudo): no se publican.
+/data/

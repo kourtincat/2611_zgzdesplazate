@@ -14,16 +14,30 @@ principal del **Localizador** (nombre interno del panel deslizable):
 
 ## Arrancar (PowerShell)
 ```
-cd C:\Users\kourt\Downloads\ProjectWeb\ProjectWeb
-npm install
+git clone https://github.com/<usuario>/2611_zgzdesplazate.git
+cd 2611_zgzdesplazate
+npm install            # requiere Node 18+ (probado con Node 22)
 npm run dev            # http://localhost:5173
 npm run dev:mobile     # HTTPS autofirmado: ábrelo desde el móvil en https://<ip-del-pc>:5173 (la geolocalización exige HTTPS)
 ```
 
+## Producción / grabador siempre encendido
+```
+npm run serve          # compila (dist/) y arranca server/index.mjs en http://localhost:8080
+npm start              # sólo arranca (si dist/ ya está compilado)
+```
+`server/index.mjs` es un servidor Node sin dependencias: sirve `dist/` y la API, y arranca el grabador al iniciar
+(en `npm run dev` el grabador sólo arranca con la primera llamada a `/api`). Variables: `PORT` (8080), `HOST` (0.0.0.0),
+`COLLECT_BUDGET`. Ejecútalo desde la raíz del proyecto (usa `./data`). No arranques dev y producción a la vez:
+los dos grabadores escribirían en los mismos ficheros.
+
 ## Datos
+`public/data/network.json` (la red ya procesada) va incluido en el repo, así que la app arranca sin descargar nada más.
+La carpeta `data/` (GTFS crudo, snapshots del grabador, modelo de hábitos y avisos de usuarios) se genera en local y no se publica.
+
 | Qué | De dónde |
 |---|---|
-| Líneas, trazados, paradas, horarios | GTFS oficial de Avanza (vía Mobility Database). `npm run build:data` → `public/data/network.json` |
+| Líneas, trazados, paradas, horarios | GTFS oficial de Avanza (vía Mobility Database, `latest.zip`). `npm run build:data` → `public/data/network.json`; `npm run update:data` vuelve a descargar la última versión |
 | Tiempo en vivo de tu poste | `zaragoza-pasobus.avanzagrupo.com` → `/api/arrivals` (botón ↻ con 10 s de enfriamiento, auto cada 20 s) |
 | "Revisar línea" | Igual que `zaragoza.avanzagrupo.com/lineas-y-horarios`: lista oficial de postes + `tiempos_de_llegada` de cada uno → `/api/scan` (30 s de enfriamiento) |
 | Snapshots | El servidor guarda cada 30 s los tiempos conocidos en `data/snapshots/AAAA-MM-DD.ndjson` y los pasos detectados en `…passes.ndjson` |
@@ -31,7 +45,9 @@ npm run dev:mobile     # HTTPS autofirmado: ábrelo desde el móvil en https://<
 | Buscador de calles | OpenStreetMap vía Photon, limitado a Zaragoza → `/api/geocode` (caché 1 h) |
 | Avisos de usuarios | `data/reports.json` (sólo línea, parada, hora y estado). `npm run seed:reports` crea avisos DEMO |
 
-> El GTFS de bus actual cubre hasta 05/10/2026; después se usan los horarios del último miércoles/sábado/domingo con servicio.
+> El GTFS de bus actual cubre hasta 05/10/2026 y Avanza no ha publicado otro (comprobado el 22/11/2026 en Mobility Database
+> y Transitland): se usan los horarios del último miércoles/sábado/domingo con servicio y la vista de línea lo avisa en el pie.
+> Algunos postes (p. ej. 237, 238, 262-265, 471) dan HTTP 500 en Avanza: el fallo se cuenta por poste y no marca toda la API como caída.
 > El tranvía sólo tiene horario. El grabador sólo funciona mientras el servidor está encendido.
 > `COLLECT_BUDGET` (por defecto 8) fija cuántos postes consulta el grabador por cada tick de 30 s.
 
@@ -56,3 +72,10 @@ npm run dev:mobile     # HTTPS autofirmado: ábrelo desde el móvil en https://<
 - `src/network.js` red, geometría 2D/3D y horario de servicio · `src/prediction.js` predicción
 - `src/crowd.js` hábitos y señales de usuarios · `src/trip.js` funciones extra (GPS)
 - `server/api.mjs` rutas API · `server/avanza.mjs` acceso a Avanza · `server/recorder.mjs` snapshots y hábitos · `server/trips.mjs` validación
+
+## Atribuciones
+- Horarios, líneas y paradas: GTFS de Avanza Zaragoza y Tranvías de Zaragoza publicado en el Punto de Acceso Nacional
+  (feed 1176) bajo su [licencia](https://nap.transportes.gob.es/licencia-datos). Powered by MITRAMS —
+  [Ministerio de Transportes y Movilidad Sostenible](https://www.transportes.gob.es/).
+- Tiempos en vivo: webs públicas de Avanza Zaragoza. Proyecto no oficial, sin relación con Avanza ni con el Ayuntamiento.
+- Mapa: © OpenStreetMap contributors, OpenMapTiles, OpenFreeMap. Buscador: Photon (komoot).

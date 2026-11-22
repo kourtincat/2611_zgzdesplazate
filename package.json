@@ -9,7 +9,10 @@
     "build:data": "node scripts/build-network.mjs",
     "seed:reports": "node scripts/seed-reports.mjs",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "update:data": "node scripts/build-network.mjs --refresh",
+    "start": "node server/index.mjs",
+    "serve": "vite build && node server/index.mjs"
   },
   "dependencies": {
     "maplibre-gl": "^4.7.1"

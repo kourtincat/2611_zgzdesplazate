@@ -104,6 +104,15 @@ export function dirLabel(net, route, d) {
   return { from: other?.headsign || net.stops[d.stops[0]].name, to: d.headsign };
 }
 
+// Pie de vista: versión del GTFS y aviso si Avanza no ha publicado horario vigente de bus (se usa el último día con
+// servicio). El tranvía viene en el mismo feed pero con calendario más largo, así que no se avisa en sus líneas.
+export function feedLabel(net, route, now = new Date()) {
+  const e = net.feedEnd;
+  const today = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
+  if (route?.tram || !e || e >= today) return `GTFS ${net.feed}`;
+  return `Horario oficial caducado el ${e.slice(6)}/${e.slice(4, 6)}/${e.slice(0, 4)}: usamos el último publicado`;
+}
+
 export const dayType = (date = new Date()) => ({ 0: "D", 6: "S" })[date.getDay()] || "L";
 export const secOfDay = (date = new Date()) => date.getHours() * 3600 + date.getMinutes() * 60 + date.getSeconds();
 const TYPE_NAMES = { L: "laborables", S: "sábados", D: "domingos" };
