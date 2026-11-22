@@ -1,4 +1,4 @@
-# ZGZ Movilidad Hecha Fácil
+# ZGZ Desplázate (2611_zgzdesplazate)
 
 Web móvil (MapLibre GL JS + Vite) para el bus y el tranvía de Zaragoza. Al abrir (F5 incluido) se muestra el menú
 principal del **Localizador** (nombre interno del panel deslizable):
@@ -14,7 +14,7 @@ principal del **Localizador** (nombre interno del panel deslizable):
 
 ## Arrancar (PowerShell)
 ```
-git clone https://github.com/<usuario>/2611_zgzdesplazate.git
+git clone https://github.com/kourtincat/2611_zgzdesplazate.git
 cd 2611_zgzdesplazate
 npm install            # requiere Node 18+ (probado con Node 22)
 npm run dev            # http://localhost:5173
