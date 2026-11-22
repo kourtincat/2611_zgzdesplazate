@@ -1,7 +1,7 @@
 // Vista de línea (Localizador modo metro): explorar la línea con sus dos sentidos y seguirla en directo en la misma
 // pantalla. Sin parada elegida se ve la línea entera con sus buses; al tocar una parada se calcula cuándo llega,
 // subida/bajada, tiempo de trayecto, otras líneas del poste y funciones sociales.
-import { app, $, esc, go, fly, fitTo, snap, topbar, badge, posteLabel, cooled, toast, serviceChip } from "../app.js";
+import { app, $, esc, go, fly, fitTo, snap, topbar, badge, posteLabel, cooled, toast, serviceChip, syncUrl } from "../app.js";
 import { nearestStop, dirLabel, dayType, secOfDay, connections, stopDone, feedLabel } from "../network.js";
 import { setLine, setStops, setTrip, setBuses, animateArrows, showPopup } from "../map.js";
 import { liveEstimate, busesFromScan, scheduledBuses, scheduledPasses, alongFromT, stopIndexFromT, stopIndexFromAlong, tFromAlong, fmtEta, fmtClock, CALIB_BACK } from "../prediction.js";
@@ -11,6 +11,7 @@ import { trip, startGps, checkIn, board, endRide, cancelCheckin } from "../trip.
 import { haversine } from "../geo.js";
 import { connChips } from "./explore.js";
 import { lineTimes } from "./find.js";
+import { isFav, toggleFav } from "../saved.js";
 
 const POLL_EVERY = 20000, SCAN_FRESH = 180000;
 const vehicle = (r) => (r.tram ? "tranvía" : "bus");
@@ -42,7 +43,8 @@ export default {
       <p id="pick-hint" class="pick-hint">Toca una parada en el recorrido o en el mapa para ver cuándo llega el ${vehicle(r)} y marcar dónde subes.</p>
       <div class="stop-part">
       <div id="eta-card">
-        <div class="eta-stop"><span class="label">Subes en</span><strong id="stop-name">—</strong><span id="stop-meta" class="meta"></span></div>
+        <div class="eta-stop"><span class="label">Subes en</span><strong id="stop-name">—</strong><span id="stop-meta" class="meta"></span>
+          <button class="star-line" id="line-fav" aria-pressed="false">☆ Guardar en favoritos</button></div>
         <div class="eta-big"><span id="eta-value">—</span><span id="eta-sub" class="meta"></span></div>
       </div>
       <div id="trip-sum" class="trip-sum" hidden></div>
@@ -71,6 +73,7 @@ export default {
     $("sheet-body").querySelector(".dir-seg")?.addEventListener("click", (e) => { const b = e.target.closest("[data-dir]"); if (b) this.switchDir(+b.dataset.dir); });
     $("others").onclick = (e) => { const row = e.target.closest(".lt-row"); if (row) go("route", { routeId: row.dataset.route, dirIdx: +row.dataset.dir, board: +row.dataset.idx, keepView: true }); };
     $("extra").onclick = (e) => this.onExtraClick(e);
+    $("line-fav").onclick = () => { toggleFav(this.favItem()); this.paintFav(); };
   },
 
   // Cabecera: siempre a la vista el nombre de la línea y el sentido elegido.
@@ -97,6 +100,7 @@ export default {
     const r = this.route, d = this.dir();
     if (trip.ride && trip.ride.route === r.id && trip.ride.dir === d.dir) { this.board = trip.ride.board; this.dest = trip.ride.dest; }
     Object.assign(app.params, { routeId: r.id, dirIdx: this.dirIdx, board: this.board, dest: this.dest });
+    syncUrl();
     this.poll_ = null; this.scan_ = null; this.habits = []; this.live = { reports: [], trackers: [] };
     this.renderTop();
     this.redraw();
@@ -117,8 +121,16 @@ export default {
       const s = app.net.stops[d.stops[this.board]];
       $("stop-name").textContent = s.name;
       $("stop-meta").textContent = `${posteLabel(app.net, d.stops[this.board])} · parada ${this.board + 1} de ${d.stops.length}`;
+      this.paintFav();
     }
     this.frame();
+  },
+  // Favorito = esta línea, en este sentido, en tu parada (en el inicio se ve su próximo bus).
+  favItem() { return { t: "linea", routeId: this.route.id, dirIdx: this.dirIdx, board: this.board }; },
+  paintFav() {
+    const on = isFav(this.favItem()), b = $("line-fav");
+    b.classList.toggle("on", on); b.setAttribute("aria-pressed", on);
+    b.textContent = on ? "★ En favoritos" : "☆ Guardar en favoritos";
   },
   center() {
     if (this.board == null) return this.fitLine();
@@ -137,6 +149,7 @@ export default {
     if (this.dest != null && this.dest <= i) this.dest = null;
     this.open = null;
     Object.assign(app.params, { board: this.board, dest: this.dest });
+    syncUrl();
     this.redraw();
     this.poll_ = null; this.habits = [];
     this.load(false);
@@ -145,6 +158,7 @@ export default {
     this.dest = i; this.open = null;
     if (trip.ride) trip.ride.dest = i;
     app.params.dest = i;
+    syncUrl();
     this.redraw();
   },
 

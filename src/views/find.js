@@ -1,6 +1,6 @@
 // Ubicar parada: por distancia (GPS o punto del mapa), por número de poste / nombre, o por ruta.
-import { app, $, esc, go, fly, simpleTop, locate, myPos, badge, posteLabel, arrivals, cooled, setPick, serviceChip } from "../app.js";
-import { stopsNear, dayType, secOfDay } from "../network.js";
+import { app, $, esc, go, fly, simpleTop, locate, myPos, badge, posteLabel, arrivals, cooled, setPick, serviceChip, syncUrl, findRoute } from "../app.js";
+import { stopsNear, routesNear, nearestStop, dayType, secOfDay } from "../network.js";
 import { setPostes } from "../map.js";
 import { lineList } from "./explore.js";
 import { scheduledPasses, fmtClock } from "../prediction.js";
@@ -20,6 +20,17 @@ export function lineTimes(net, stopId, rows) {
       t = next.length ? `<span class="sched">hor. ${next.map(fmtClock).join(" · ")}</span>` : `<span class="sched">sin servicio</span>`;
     }
     return { route, dirIdx, idx, html: `<div class="lt-row" data-route="${route.id}" data-dir="${dirIdx}" data-idx="${idx}">${badge(route)}<span class="lt-dest">→ ${esc(d.headsign)}</span><span class="lt-time">${t}</span></div>` };
+  });
+}
+
+// Próximo paso de cada línea de un poste, en corto (para tarjetas de favoritos y "cerca de mí").
+export function nextByLine(net, stopId, rows) {
+  const type = dayType(), now = secOfDay();
+  return net.byStop[stopId].map(({ route, dirIdx, idx }) => {
+    const live = (rows || []).filter((r) => r.line === route.short.toUpperCase()).map((r) => r.min).filter((m) => m !== null).sort((a, b) => a - b);
+    if (live.length) return { route, dirIdx, idx, txt: live[0] === 0 ? "YA" : `${live[0]}'`, live: true };
+    const next = scheduledPasses(route.dirs[dirIdx], type, idx, now, 2 * 3600)[0];
+    return { route, dirIdx, idx, txt: next != null ? fmtClock(next) : "—", live: false };
   });
 }
 
@@ -52,11 +63,27 @@ export default {
       $("find-gps").onclick = async () => { if (await locate()) this.render(); };
       return;
     }
-    const near = stopsNear(app.net, p, 600, 10);
-    const net = app.net;
-    el.innerHTML = `<div class="list-head"><span class="meta">${near.length} postes a menos de 600 m ${app.params.point ? "del punto elegido" : "de ti"}</span>
+    const net = app.net, where = app.params.point ? "del punto elegido" : "de ti";
+    // Filtro por línea: "el poste más cercano de la 35" (uno por sentido, aunque esté a más de 600 m).
+    const line = app.params.line ? findRoute(net, app.params.line) : null;
+    const lines = routesNear(net, p, 600);
+    const near = line
+      ? line.dirs.map((d, dirIdx) => { const s = nearestStop(net, d, p); return { id: s.id, d: s.d, only: { route: line, dirIdx } }; })
+      : stopsNear(net, p, 600, 10);
+    el.innerHTML = `<div class="line-filter" role="group" aria-label="Filtrar por línea">
+        <button class="fchip ${line ? "" : "on"}" data-line="">Todas</button>
+        ${(line && !lines.some((x) => x.route === line) ? [{ route: line }, ...lines] : lines).slice(0, 14).map((x) => `<button class="fchip ${x.route === line ? "on" : ""}" data-line="${esc(x.route.short)}">${badge(x.route, "xs")}</button>`).join("")}
+      </div>
+      <div class="list-head"><span class="meta">${line ? `Poste más cercano de la ${esc(line.short)} ${where}, en cada sentido` : `${near.length} postes a menos de 600 m ${where}`}</span>
       <button class="pill cool" id="find-refresh" data-cool="10">↻ Actualizar</button></div>
       <div id="near-postes">${near.map((s) => this.card(s, null)).join("") || `<p class="meta">No hay paradas cerca. Prueba otro punto.</p>`}</div>`;
+    el.querySelector(".line-filter").onclick = (e) => {
+      const b = e.target.closest("[data-line]");
+      if (!b) return;
+      app.params.line = b.dataset.line || null;
+      syncUrl();
+      this.render();
+    };
     setPostes(app.map, near.map((s, i) => ({ id: s.id, p: net.stops[s.id].p, label: net.stops[s.id].tram ? net.stops[s.id].name : String(net.stops[s.id].code), sel: i === 0 })));
     if (!this._fitted) { fly({ center: p, zoom: 16, pitch: app.flat ? 0 : 50 }); this._fitted = true; }
     cooled($("find-refresh"), () => this.loadTimes(near));
@@ -67,7 +94,7 @@ export default {
     const st = app.net.stops[s.id];
     return `<div class="poste-card" data-id="${s.id}">
       <div class="pc-head"><strong>${esc(st.name)}</strong><span class="meta">${posteLabel(app.net, s.id)} · ${Math.round(s.d)} m</span></div>
-      ${lineTimes(app.net, s.id, rows).map((x) => x.html).join("")}</div>`;
+      ${lineTimes(app.net, s.id, rows).filter((x) => !s.only || (x.route === s.only.route && x.dirIdx === s.only.dirIdx)).map((x) => x.html).join("")}</div>`;
   },
   async loadTimes(near) {
     // Tiempos en vivo de los 6 postes más cercanos (una petición por poste devuelve todas sus líneas).
@@ -75,8 +102,7 @@ export default {
       const st = app.net.stops[s.id];
       if (st.tram) return;
       const r = await arrivals(st.code);
-      const el = document.querySelector(`.poste-card[data-id="${s.id}"]`);
-      if (el && app.view === this) el.outerHTML = this.card(s, r.rows);
+      for (const el of document.querySelectorAll(`.poste-card[data-id="${s.id}"]`)) if (app.view === this) el.outerHTML = this.card(s, r.rows);
     }));
   },
   onListClick(e) {
@@ -117,6 +143,7 @@ export default {
   onMapClick(p) {
     if (this.tab !== "dist") return false;
     app.params.point = p; this._fitted = true;
+    syncUrl();
     setPick(p);
     this.render();
     return true;

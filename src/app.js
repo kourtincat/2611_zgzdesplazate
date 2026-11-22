@@ -3,6 +3,7 @@ import { trip, startGps } from "./trip.js";
 import { setMarker, clearLayers, setNetwork, closePopup } from "./map.js";
 import { fmtClock } from "./prediction.js";
 import { serviceInfo, dayType, secOfDay } from "./network.js";
+import { addRecent } from "./saved.js";
 
 export const $ = (id) => document.getElementById(id);
 export const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -21,17 +22,19 @@ export const app = {
 };
 
 // ---------- Navegación ----------
+// Cada vista tiene su URL (/poste/262, /linea/35?sentido=1&sube=236…) y entra en el historial del navegador:
+// el botón atrás del móvil funciona, y si el sistema cierra la pestaña al saltar a otra app, al volver se recupera
+// la misma pantalla. history.state guarda los parámetros completos; la URL basta para reconstruir lo esencial.
 export function go(name, params = {}, { replace = false } = {}) {
-  if (app.view && !replace) app.stack.push({ name: app.view.name, params: app.params });
-  enter(name, params);
+  enter(name, params, replace ? "replace" : "push");
 }
 export function back() {
-  const prev = app.stack.pop();
-  enter(prev ? prev.name : "menu", prev ? prev.params : {});
+  if ((history.state?.n || 0) > 0) history.back();
+  else enter("menu", {}, "replace"); // entrada directa por enlace: no hay a dónde volver dentro de la app
 }
-export function home() { app.stack = []; enter("menu", {}); }
+export function home() { enter("menu", {}, "push"); }
 
-function enter(name, params) {
+function enter(name, params, mode = "push") {
   app.view?.leave?.();
   closePopup();
   clearLayers(app.map);
@@ -41,8 +44,94 @@ function enter(name, params) {
   app.params = params;
   document.body.dataset.view = name;
   $("sheet-body").scrollTop = 0;
+  if (mode !== "none") {
+    const n = (history.state?.n || 0) + (mode === "push" && history.state ? 1 : 0);
+    history[mode === "push" && history.state ? "pushState" : "replaceState"]({ view: name, params: plain(params), n }, "", toUrl(name, params));
+  }
   app.view.enter(params);
   if (app.view.snap) snap(app.view.snap);
+  record(name, app.params);
+}
+
+// Las vistas cambian app.params sobre la marcha (sentido, parada elegida…): esto actualiza la URL sin apilar.
+export function syncUrl() {
+  if (!app.view) return;
+  history.replaceState({ ...(history.state || { n: 0 }), view: app.view.name, params: plain(app.params) }, "", toUrl(app.view.name, app.params));
+  record(app.view.name, app.params);
+}
+const plain = (p) => { try { return structuredClone(p); } catch { return {}; } };
+
+function record(name, p) {
+  if (name === "poste") addRecent({ t: "poste", id: p.id });
+  if (name === "route") addRecent({ t: "linea", routeId: p.routeId, dirIdx: p.dirIdx || 0, board: p.board ?? null });
+}
+
+// Parada dentro de un sentido -> texto de URL (número de poste si lo tiene; si no, id GTFS) y vuelta.
+const stopRef = (net, id) => (net.stops[id].code ? String(net.stops[id].code) : `s${id}`);
+function stopIdx(net, dir, ref) {
+  if (ref == null || ref === "") return null;
+  const i = dir.stops.findIndex((id) => (ref.startsWith("s") ? id === ref.slice(1) : String(net.stops[id].code) === ref));
+  return i >= 0 ? i : null;
+}
+
+export function toUrl(name, p = {}) {
+  const net = app.net, q = new URLSearchParams();
+  if (name === "poste") {
+    const st = net.stops[p.id];
+    return st?.code ? `/poste/${st.code}` : `/parada/${encodeURIComponent(p.id)}`;
+  }
+  if (name === "route") {
+    const r = net.byId[p.routeId], dirIdx = p.dirIdx || 0, d = r.dirs[dirIdx];
+    if (dirIdx) q.set("sentido", dirIdx);
+    if (p.board != null) q.set("sube", stopRef(net, d.stops[p.board]));
+    if (p.dest != null) q.set("baja", stopRef(net, d.stops[p.dest]));
+    return `/linea/${encodeURIComponent(r.short)}${q.size ? `?${q}` : ""}`;
+  }
+  if (name === "find") {
+    if (p.line) q.set("linea", p.line);
+    if (p.point) q.set("en", p.point.map((x) => x.toFixed(5)).join(","));
+    return `/cerca${q.size ? `?${q}` : ""}`;
+  }
+  if (name === "explore") return "/lineas";
+  if (name === "plan") return "/ir";
+  return "/";
+}
+
+export function fromUrl(loc = location) {
+  const net = app.net, parts = loc.pathname.split("/").filter(Boolean).map(decodeURIComponent), q = new URLSearchParams(loc.search);
+  const [a, b] = parts;
+  if (a === "poste" && net.byCode[b]) return { name: "poste", params: { id: net.byCode[b] } };
+  if (a === "parada" && net.byStop[b]) return { name: "poste", params: { id: b } };
+  if (a === "linea" && b) {
+    const r = findRoute(net, b);
+    if (!r) return null;
+    const dirIdx = Math.min(+q.get("sentido") || 0, r.dirs.length - 1), d = r.dirs[dirIdx];
+    const board = stopIdx(net, d, q.get("sube")), dest = stopIdx(net, d, q.get("baja"));
+    return { name: "route", params: { routeId: r.id, dirIdx, board, dest: board != null && dest > board ? dest : null } };
+  }
+  if (a === "cerca") {
+    const en = q.get("en")?.split(",").map(Number);
+    return { name: "find", params: { tab: "dist", line: q.get("linea") || null, point: en?.length === 2 && en.every(Number.isFinite) ? en : null } };
+  }
+  if (a === "lineas") return { name: "explore", params: {} };
+  if (a === "ir") return { name: "plan", params: {} };
+  return null;
+}
+export const findRoute = (net, short) => net.routes.find((r) => r.short.toLowerCase() === String(short).toLowerCase());
+
+// Atrás/adelante del navegador (o del móvil).
+addEventListener("popstate", (e) => {
+  if (!app.net) return;
+  const s = e.state, t = s?.view && app.views[s.view] ? { name: s.view, params: s.params || {} } : fromUrl() || { name: "menu", params: {} };
+  enter(t.name, t.params, "none");
+});
+
+// Arranque: la URL manda (enlace compartido o pestaña recuperada); si no hay, menú.
+export function start() {
+  const t = (history.state?.view && app.views[history.state.view] && { name: history.state.view, params: history.state.params || {} }) || fromUrl() || { name: "menu", params: {} };
+  if (!history.state) history.replaceState({ view: t.name, params: plain(t.params), n: 0 }, "", location.href);
+  enter(t.name, t.params, "replace");
+  return t.name;
 }
 
 // ---------- Localizador (panel inferior deslizable) ----------

@@ -1,8 +1,9 @@
 // ZGZ Movilidad Hecha Fácil — arranque, bienvenida y eventos globales.
-// Al cargar (F5 incluido) siempre se abre el menú principal; la bienvenida sólo la primera vez.
+// Al cargar (F5 incluido) se abre la pantalla de la URL (/poste/262, /linea/35…) o el inicio; la bienvenida sólo la
+// primera vez y nunca al entrar por un enlace directo.
 import { loadNetwork } from "./network.js";
 import { createMap, setMarker } from "./map.js";
-import { app, $, go, back, home, fly, fitTo, initSheet, setPick, pref, toast, paintCooldowns, locate, myPos } from "./app.js";
+import { app, $, go, back, home, start, fly, fitTo, initSheet, setPick, pref, toast, paintCooldowns, locate, myPos } from "./app.js";
 import { trip, startGps, unlock, endRide } from "./trip.js";
 import { haversine } from "./geo.js";
 import menu from "./views/menu.js";
@@ -14,7 +15,8 @@ import plan from "./views/plan.js";
 
 app.views = { menu, find, poste, explore, route, plan };
 
-if (!pref.get("pw-welcomed")) document.body.dataset.view = "welcome";
+const deepLink = location.pathname !== "/";
+if (!pref.get("pw-welcomed") && !deepLink) document.body.dataset.view = "welcome";
 
 // La bienvenida responde aunque el mapa siga cargando: las acciones esperan a `ready`.
 let markReady;
@@ -80,8 +82,8 @@ trip.onChange = () => {
 
 // ---------- Arranque ----------
 markReady();
-if (pref.get("pw-welcomed")) {
-  home();
+if (pref.get("pw-welcomed") || deepLink) {
+  start();
   if (pref.get("pw-gps") === "1" || trip.unlocked) startGps();
 }
 setInterval(() => { paintCooldowns(); app.view?.frame?.(); }, 1000);

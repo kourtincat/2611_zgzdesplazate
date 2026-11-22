@@ -3,6 +3,9 @@ import { app, $, esc, go, fly, simpleTop, myPos, posteLabel, arrivals, cooled, b
 import { setPostes } from "../map.js";
 import { haversine } from "../geo.js";
 import { lineTimes } from "./find.js";
+import { isFav, toggleFav } from "../saved.js";
+
+const starBtn = (on) => `<button class="star ${on ? "on" : ""}" id="poste-fav" aria-pressed="${on}" aria-label="${on ? "Quitar de favoritos" : "Añadir a favoritos"}">${on ? "★" : "☆"}</button>`;
 
 export default {
   name: "poste",
@@ -17,7 +20,8 @@ export default {
       <div class="poste-hero">
         <div><span class="label">${posteLabel(net, id)}</span><strong>${esc(st.name)}</strong>
           <span class="meta">${me ? `${Math.round(haversine(me, st.p))} m de ti · ` : ""}${net.byStop[id].length} línea${net.byStop[id].length > 1 ? "s" : ""}</span></div>
-        ${st.tram ? "" : `<button class="pill icon-refresh" id="poste-refresh" data-cool="10" data-cool-key="p${st.code}" title="Actualizar tiempos" aria-label="Actualizar tiempos">↻</button>`}
+        <div class="hero-actions">${starBtn(isFav({ t: "poste", id }))}
+        ${st.tram ? "" : `<button class="pill icon-refresh" id="poste-refresh" data-cool="10" data-cool-key="p${st.code}" title="Actualizar tiempos" aria-label="Actualizar tiempos">↻</button>`}</div>
       </div>
       <div id="poste-lines" class="poste-card flat"></div>
       <p class="meta" id="poste-at"></p>
@@ -28,6 +32,7 @@ export default {
     setPostes(app.map, [{ id, p: st.p, label: st.tram ? st.name : String(st.code), sel: true }, ...others.map((n) => ({ id: n.id, p: net.stops[n.id].p, label: String(net.stops[n.id].code || "") }))]);
     fly({ center: st.p, zoom: 16.5, pitch: app.flat ? 0 : 50 });
     $("sheet-body").onclick = (e) => {
+      if (e.target.closest("#poste-fav")) { const on = toggleFav({ t: "poste", id }); e.target.closest("#poste-fav").outerHTML = starBtn(on); return; }
       const row = e.target.closest(".lt-row");
       if (row) return go("route", { routeId: row.dataset.route, dirIdx: +row.dataset.dir, board: +row.dataset.idx });
       const other = e.target.closest(".res-item");

@@ -1,8 +1,15 @@
 # ZGZ Desplázate (2611_zgzdesplazate)
 
-Web móvil (MapLibre GL JS + Vite) para el bus y el tranvía de Zaragoza. Al abrir (F5 incluido) se muestra el menú
-principal del **Localizador** (nombre interno del panel deslizable):
+Web móvil (MapLibre GL JS + Vite) para el bus y el tranvía de Zaragoza. Al abrir se muestra el **inicio** dentro del
+**Localizador** (nombre interno del panel deslizable):
 
+- **Buscador único**: número de poste (`262`), línea (`35`, `Ci1`), nombre de parada (`plaza españa`) o calle. Con una
+  línea y tu ubicación ofrece directamente **el poste más cercano de esa línea en cada sentido**.
+- **Accesos rápidos**: Cerca de mí (con filtro por línea), Líneas y Cómo llegar.
+- **Favoritos y recientes** (sólo en este navegador): ☆ en un poste o en tu parada de una línea; el inicio muestra su
+  próximo bus en vivo (cada 30 s).
+- **URLs propias**: `/poste/262`, `/linea/35?sentido=1&sube=236&baja=707`, `/cerca?linea=35&en=lon,lat`, `/lineas`, `/ir`.
+  Se pueden compartir, el botón atrás del móvil funciona y al volver a la pestaña se recupera la misma pantalla.
 - **Ubicar parada**: por distancia (GPS o punto del mapa), por número de poste / nombre, o por ruta. La ficha de poste
   muestra todas sus líneas, su dirección y sus tiempos (Avanza en vivo o horario), con ↻ (10 s de enfriamiento).
 - **Indicar a dónde voy**: origen (GPS, mapa o buscador de calles y números) → «Selecciona a dónde vas» → opciones
@@ -65,8 +72,8 @@ La carpeta `data/` (GTFS crudo, snapshots del grabador, modelo de hábitos y avi
   Si terminas el viaje sin verificar, el aviso se descarta.
 
 ## Estructura
-- `src/app.js` navegación, Localizador deslizable, cámara (`fly`, `fitTo`) y utilidades
-- `src/views/` menu · find (Ubicar parada) · poste · explore (lista y línea) · route (línea en directo) · plan (Indicar a dónde voy)
+- `src/app.js` navegación con URLs e historial, Localizador deslizable, cámara (`fly`, `fitTo`) y utilidades · `src/saved.js` favoritos y recientes
+- `src/views/` menu (inicio: buscador, favoritos) · find (Ubicar parada) · poste · explore (lista y línea) · route (línea en directo) · plan (Indicar a dónde voy)
 - `src/planner.js` planificador con hasta 1 transbordo (frecuencias del horario + tiempos entre paradas)
 - `src/main.js` arranque y eventos globales · `src/map.js` mapa · `src/diagram.js` recorrido y línea temporal
 - `src/network.js` red, geometría 2D/3D y horario de servicio · `src/prediction.js` predicción
