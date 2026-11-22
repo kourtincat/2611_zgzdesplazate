@@ -1,9 +1,10 @@
 // Vista de línea (Localizador modo metro): explorar la línea con sus dos sentidos y seguirla en directo en la misma
 // pantalla. Sin parada elegida se ve la línea entera con sus buses; al tocar una parada se calcula cuándo llega,
 // subida/bajada, tiempo de trayecto, otras líneas del poste y funciones sociales.
-import { app, $, esc, go, fly, fitTo, snap, topbar, badge, posteLabel, cooled, toast, serviceChip, syncUrl } from "../app.js";
+import { app, $, esc, go, fly, fitTo, snap, topbar, badge, posteLabel, cooled, toast, serviceChip, syncUrl, placeLabel } from "../app.js";
+import { plan } from "../planner.js";
 import { nearestStop, dirLabel, dayType, secOfDay, connections, stopDone, feedLabel } from "../network.js";
-import { setLine, setStops, setTrip, setBuses, animateArrows, showPopup } from "../map.js";
+import { setLine, setStops, setTrip, setBuses, animateArrows, showPopup, setMarker, setData, fc, line } from "../map.js";
 import { liveEstimate, busesFromScan, scheduledBuses, scheduledPasses, alongFromT, stopIndexFromT, stopIndexFromAlong, tFromAlong, fmtEta, fmtClock, CALIB_BACK } from "../prediction.js";
 import { renderStops, renderTimeline } from "../diagram.js";
 import { fetchLive, fetchHabits, passesAt, tentative, mergeHabits, liveSignals } from "../crowd.js";
@@ -12,15 +13,21 @@ import { haversine } from "../geo.js";
 import { connChips } from "./explore.js";
 import { lineTimes } from "./find.js";
 import { isFav, toggleFav } from "../saved.js";
+import { wait, isWaiting, startWait, stopWait, setAlert, boarded, retryPush, lastBoarded, undoBoarded } from "../wait.js";
+
+const ALERTS = [1, 2, 3, 5, 8, 10];
 
 const POLL_EVERY = 20000, SCAN_FRESH = 180000;
 const vehicle = (r) => (r.tram ? "tranvía" : "bus");
+const walkSec = (m) => (m * 1.3) / 1.2;
+const walkMin = (m) => Math.max(1, Math.round(walkSec(m) / 60));
 
 export default {
   name: "route",
   snap: "half",
   // keepView: no mover la cámara (al saltar a otra línea desde una correspondencia).
-  enter({ routeId, dirIdx = 0, board: b = null, dest = null, keepView = false }) {
+  enter({ routeId, dirIdx = 0, board: b = null, dest = null, to = null, keepView = false }) {
+    this.to = to; // destino final («Quiero ir aquí»): { p, label }
     this.route = app.net.byId[routeId];
     this.dirIdx = dirIdx;
     this.open = null;
@@ -47,6 +54,8 @@ export default {
           <button class="star-line" id="line-fav" aria-pressed="false">☆ Guardar en favoritos</button></div>
         <div class="eta-big"><span id="eta-value">—</span><span id="eta-sub" class="meta"></span></div>
       </div>
+      <div id="wait-box" class="wait-box"></div>
+      <div id="to-box" class="to-box" hidden></div>
       <div id="trip-sum" class="trip-sum" hidden></div>
       <div class="others"><div class="block-title">Otras líneas en este poste</div><div id="others" class="poste-card flat"></div></div>
       <p id="signal-note" class="note" hidden></p>
@@ -73,6 +82,9 @@ export default {
     $("sheet-body").querySelector(".dir-seg")?.addEventListener("click", (e) => { const b = e.target.closest("[data-dir]"); if (b) this.switchDir(+b.dataset.dir); });
     $("others").onclick = (e) => { const row = e.target.closest(".lt-row"); if (row) go("route", { routeId: row.dataset.route, dirIdx: +row.dataset.dir, board: +row.dataset.idx, keepView: true }); };
     $("extra").onclick = (e) => this.onExtraClick(e);
+    $("wait-box").onclick = (e) => this.onWaitClick(e);
+    $("to-box").onclick = (e) => this.onToClick(e);
+    $("wait-box").onchange = (e) => { if (e.target.id === "wait-alert") setAlert(+e.target.value); };
     $("line-fav").onclick = () => { toggleFav(this.favItem()); this.paintFav(); };
   },
 
@@ -99,12 +111,13 @@ export default {
   change(mode) {
     const r = this.route, d = this.dir();
     if (trip.ride && trip.ride.route === r.id && trip.ride.dir === d.dir) { this.board = trip.ride.board; this.dest = trip.ride.dest; }
-    Object.assign(app.params, { routeId: r.id, dirIdx: this.dirIdx, board: this.board, dest: this.dest });
+    else this.computeTo();
+    Object.assign(app.params, { routeId: r.id, dirIdx: this.dirIdx, board: this.board, dest: this.dest, to: this.to });
     syncUrl();
     this.poll_ = null; this.scan_ = null; this.habits = []; this.live = { reports: [], trackers: [] };
     this.renderTop();
     this.redraw();
-    if (mode === "board") this.center();
+    if (mode === "board") { if (this.to) this.fitTo(); else this.center(); }
     if (mode === "line") this.fitLine();
     this.load(true);
   },
@@ -115,6 +128,7 @@ export default {
     setStops(app.map, app.net, d, g, { board: this.board, dest: this.dest, xfer: (id) => connections(app.net, id, r.id).length > 0, off: (j) => stopDone(d, type, j, now) });
     setTrip(app.map, d, g, this.board, this.dest);
     animateArrows(app.map, r, d, g);
+    this.drawTo();
     const has = this.board != null;
     $("sheet-body").classList.toggle("no-stop", !has);
     if (has) {
@@ -148,6 +162,7 @@ export default {
     this.board = i;
     if (this.dest != null && this.dest <= i) this.dest = null;
     this.open = null;
+    this.computeTo();
     Object.assign(app.params, { board: this.board, dest: this.dest });
     syncUrl();
     this.redraw();
@@ -182,6 +197,9 @@ export default {
         const [U, C] = await Promise.all([get(u), c < u ? get(c) : Promise.resolve(null)]);
         this.health = U.health || this.health;
         if (this.alive(r, d) && u === this.board) this.poll_ = { U, C, c, at: Date.now() };
+        // Primera predicción vista en esta parada (para comparar luego con la subida real).
+        const m0 = U.ok ? U.rows.filter((x) => x.line === r.short.toUpperCase() && x.min != null).map((x) => x.min).sort((a, b) => a - b)[0] : undefined;
+        if (m0 != null && this.firstSeen?.u !== u) this.firstSeen = { u, min: m0, at: Date.now() };
       } catch { this.health = { up: false }; }
     }
     if (app.social) fetchLive(r, d).then((l) => { if (this.alive(r, d)) this.live = l; });
@@ -263,6 +281,7 @@ export default {
       sub = `${r.live ? (apiDown ? "Avanza caída" : "sin bus en vivo") : "tranvía · sin dato en vivo"} · horario ${fmtClock(schedNext)}`;
     } else { $("eta-value").textContent = "—"; sub = serviceChip(r).replace(/<[^>]+>/g, ""); }
     $("eta-sub").textContent = sub;
+    this.renderWait();
 
     // Tiempo estimado de trayecto (subida -> bajada)
     const ts = $("trip-sum");
@@ -270,9 +289,10 @@ export default {
     if (this.dest != null) {
       const f = pollNext?.calibrated && !pollNext.atHead ? pollNext.f : 1;
       const ride = (d.offsets[this.dest] - d.offsets[u]) * f, stops = this.dest - u;
-      const arrive = wait != null ? nowSec + wait + ride : null;
+      const t = this.toPlan, walkEnd = t && !t.second && t.endWalk != null ? walkSec(t.endWalk) : 0;
+      const arrive = wait != null ? nowSec + wait + ride + walkEnd : null;
       ts.innerHTML = `<div><span class="label">Trayecto</span><b>≈ ${Math.max(1, Math.round(ride / 60))} min</b> en el ${vehicle(r)} · ${stops} parada${stops > 1 ? "s" : ""}</div>
-        <div class="meta">${wait != null ? `+ ${Math.max(0, Math.round(wait / 60))} min de espera · llegas a <b>${esc(net.stops[d.stops[this.dest]].name)}</b> hacia las <b>${fmtClock(arrive)}</b>` : "sin servicio previsto ahora"}${f !== 1 ? ` · ritmo real ×${f.toFixed(2)}` : ""}</div>`;
+        <div class="meta">${wait != null ? `+ ${Math.max(0, Math.round(wait / 60))} min de espera · llegas a <b>${esc(net.stops[d.stops[this.dest]].name)}</b> hacia las <b>${fmtClock(arrive)}</b>` : "sin servicio previsto ahora"}${walkEnd ? ` + ${walkMin(t.endWalk)} min andando` : ""}${f !== 1 ? ` · ritmo real ×${f.toFixed(2)}` : ""}</div>`;
     }
 
     const sig = signals[0];
@@ -325,19 +345,150 @@ export default {
     return true;
   },
 
+  // ---------- «Quiero ir aquí»: destino final desde tu parada ----------
+  // Con un destino, la línea propone dónde bajarte (y el transbordo si hace falta), dibuja el tramo a pie y sugiere
+  // alternativas desde tu poste (otras líneas que te dejan antes, con o sin transbordo).
+  canPickGo() { return this.board != null && !trip.ride; },
+  pickGo(k) {
+    this.to = { p: k.p, label: placeLabel(app.net, k.p) };
+    this.dest = null;
+    this.computeTo();
+    Object.assign(app.params, { dest: this.dest, to: this.to });
+    syncUrl();
+    this.redraw();
+    this.fitTo();
+  },
+  computeTo() {
+    this.toPlan = null;
+    if (!this.to || this.board == null) return;
+    const net = app.net, r = this.route, d = this.dir(), from = net.stops[d.stops[this.board]].p;
+    const opts = plan(net, from, this.to.p).options;
+    const mine = opts.find((o) => o.legs[0].route === r && o.legs[0].dirIdx === this.dirIdx && o.legs[0].to > this.board) || null;
+    let dest = null, endWalk = null;
+    if (mine) { dest = mine.legs[0].to; endWalk = mine.endWalk; }
+    else { // el planificador prefiere otras líneas: aun así, la parada de esta línea más cercana al destino
+      let bd = Infinity;
+      for (let j = this.board + 1; j < d.stops.length; j++) { const x = haversine(net.stops[d.stops[j]].p, this.to.p); if (x < bd) { bd = x; dest = j; } }
+      if (bd > 900) dest = null; else endWalk = bd;
+    }
+    this.dest = dest;
+    this.toPlan = { opts, mine, second: mine?.legs[1] || null, endWalk, direct: haversine(from, this.to.p) };
+  },
+  fitTo() {
+    const net = app.net, d = this.dir(), pts = [net.stops[d.stops[this.board]].p, this.to.p];
+    if (this.dest != null) pts.push(net.stops[d.stops[this.dest]].p);
+    const lons = pts.map((p) => p[0]), lats = pts.map((p) => p[1]);
+    fitTo([[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]], { duration: 900, maxZoom: 16 });
+  },
+  drawTo() {
+    const net = app.net, t = this.toPlan, d = this.dir(), box = $("to-box");
+    setMarker(app.map, "B", this.to?.p || null, { className: "pin-ab b", text: "B" });
+    box.hidden = !this.to || this.board == null;
+    if (box.hidden || !t) { setData(app.map, "plan"); return; }
+    // Mapa: (transbordo) + tramo a pie hasta el destino.
+    const feats = [];
+    let last = this.dest != null ? net.stops[d.stops[this.dest]].p : null;
+    if (t.second) {
+      const l = t.second, d2 = l.route.dirs[l.dirIdx], g = d2.real, pts = [];
+      feats.push(line([last, net.stops[d2.stops[l.from]].p], { kind: "walk" }));
+      for (let a = d2.along[l.from]; a < d2.along[l.to]; a += 25) pts.push(g.at(a));
+      pts.push(g.at(d2.along[l.to]));
+      feats.push(line(pts, { kind: "ride", color: l.route.color }));
+      last = net.stops[d2.stops[l.to]].p;
+    }
+    if (last) feats.push(line([last, this.to.p], { kind: "walk" }));
+    setData(app.map, "plan", fc(feats));
+    // Panel: cómo llegas con esta línea y alternativas desde tu poste.
+    const r = this.route, boardId = d.stops[this.board];
+    const destName = this.dest != null ? esc(net.stops[d.stops[this.dest]].name) : "";
+    let how;
+    if (t.second) {
+      const l = t.second, d2 = l.route.dirs[l.dirIdx];
+      how = `Bajas en <b>${destName}</b>, coges la ${badge(l.route, "xs")} hasta <b>${esc(net.stops[d2.stops[l.to]].name)}</b> y andas ${walkMin(t.endWalk)} min · ≈ ${Math.round(t.mine.total / 60)} min en total`;
+    } else if (this.dest != null) how = `Bajas en <b>${destName}</b> y andas ${walkMin(t.endWalk)} min (${Math.round(t.endWalk / 10) * 10} m)`;
+    else how = `La ${esc(r.short)} no te acerca a ese punto desde aquí: mira las alternativas.`;
+    const alts = t.opts.filter((o) => o !== t.mine).slice(0, 3);
+    const best = t.mine?.total ?? t.opts[0]?.total ?? Infinity, walkBetter = walkSec(t.direct) <= best;
+    const altRow = (o) => {
+      const i = t.opts.indexOf(o), l0 = o.legs[0], off = l0.fromStop !== boardId;
+      return `<button class="alt-row" data-alt="${i}"><span class="alt-legs">${o.legs.map((l, k) => `${k ? "<small>⇄</small>" : ""}${badge(l.route, "xs")}`).join("")}</span>
+        <span class="alt-main"><b>≈ ${Math.round(o.total / 60)} min · llegas ~${fmtClock(o.arrive)}</b>
+        <small>${o.legs.length > 1 ? "1 transbordo" : "directo"}${off ? ` · desde ${esc(net.stops[l0.fromStop].name)} (${Math.round(l0.walk)} m)` : " · desde tu poste"}</small></span><span aria-hidden="true">›</span></button>`;
+    };
+    box.innerHTML = `<div class="to-head"><span class="od-dot dest">B</span><span class="to-main"><small>Vas a</small><b>${esc(this.to.label)}</b></span>
+        <button class="link-btn" data-to="clear">Quitar</button></div>
+      <p class="to-how">${walkBetter ? `<b>Te compensa ir andando: ≈ ${walkMin(t.direct)} min</b> (${Math.round(t.direct * 1.3 / 10) * 10} m). ` : ""}${how}${!walkBetter && t.direct < 1200 ? ` · o andando ≈ ${walkMin(t.direct)} min` : ""}</p>
+      ${alts.length ? `<div class="block-title">Alternativas desde aquí</div>${alts.map(altRow).join("")}` : ""}`;
+  },
+  onToClick(e) {
+    if (e.target.closest("[data-to=clear]")) {
+      this.to = null; this.toPlan = null;
+      Object.assign(app.params, { to: null });
+      syncUrl(); this.redraw(); return;
+    }
+    const a = e.target.closest("[data-alt]");
+    if (!a) return;
+    const o = this.toPlan.opts[+a.dataset.alt], l = o.legs[0];
+    go("route", { routeId: l.route.id, dirIdx: l.dirIdx, board: l.from, dest: l.to, to: this.to });
+  },
+
+  // ---------- «Estoy esperando» y «He subido» ----------
+  // Sólo se repinta al cambiar de estado (para no cerrar el desplegable del aviso). La cuenta atrás es el tiempo grande.
+  renderWait() {
+    const el = $("wait-box"), r = this.route, on = isWaiting(r.id, this.dirIdx, this.board), w = wait.cur;
+    const lb = lastBoarded(), here = lb && lb.routeId === r.id && lb.dir === this.dir().dir && lb.stopId === this.dir().stops[this.board];
+    const key = [r.live, on, w?.push, w?.alertMin, app.social, !!trip.ride, w && !on ? w.routeId : "", here ? lb.id : ""].join("|");
+    if (el.dataset.key !== key) {
+      el.dataset.key = key;
+      const pushMsg = !on ? "" : { on: "Te avisaremos con una notificación aunque cambies de app.", denied: "Notificaciones bloqueadas: sólo te avisaremos con la app abierta. Actívalas en los ajustes del navegador para este sitio.",
+        unsupported: "Este navegador no permite notificaciones aquí (en iPhone, añade la web a la pantalla de inicio). Te avisaremos con la app abierta.",
+        error: "No se pudieron activar las notificaciones.", off: "Activando notificaciones…" }[w.push] || "";
+      // «He subido» → gris «Subido ✓» (viaje empezado). Otro toque = «Entrada incorrecta»: se borra y vuelve a rojo.
+      const boardBtn = !app.social ? "" : here
+        ? `<button class="board done" data-w="undo" aria-pressed="true">Subido ✓<small>¿error? toca para deshacer</small></button>`
+        : trip.ride ? "" : `<button class="board" data-w="boarded" aria-pressed="false">He subido</button>`;
+      el.innerHTML = !r.live ? boardBtn && `<div class="wait-row">${boardBtn}</div>` : on
+        ? `<div class="wait-on"><div class="wait-head"><span class="live-dot"></span><b>Esperando</b><span class="meta">· la cuenta atrás te sigue en las demás pantallas</span></div>
+            <label class="wait-alert">Avisarme cuando falten <select id="wait-alert">${ALERTS.map((m) => `<option value="${m}" ${m === w.alertMin ? "selected" : ""}>${m} min</option>`).join("")}</select></label>
+            <span class="meta ${w.push === "on" ? "" : "warn"}">${pushMsg}${w.push === "error" ? ` <button class="link-btn" data-w="retry">Reintentar</button>` : ""}</span>
+            <div class="wait-row">${boardBtn}<button class="ghost-btn" data-w="stop">Ya no espero</button></div></div>`
+        : `<div class="wait-row"><button class="board alt" data-w="start">⏱ Esperar y avisarme</button>${boardBtn}</div>
+           ${w ? `<span class="meta">Ahora esperas la ${esc(w.line)} en ${esc(w.stopName)}; empezar aquí la sustituye.</span>` : ""}`;
+    }
+  },
+  async onWaitClick(e) {
+    const b = e.target.closest("[data-w]"); if (!b) return;
+    const r = this.route, d = this.dir(), a = b.dataset.w;
+    try {
+      if (a === "start") {
+        const st = await startWait(app.net, r, this.dirIdx, this.board);
+        toast(st === "on" ? "Te avisaremos cuando llegue" : "Esperando: te avisaremos con la app abierta");
+      }
+      if (a === "stop") stopWait();
+      if (a === "retry") retryPush();
+      if (a === "boarded") await this.onBoarded();
+      if (a === "undo") {
+        await undoBoarded();
+        if (trip.ride) { await endRide(); this.renderTop(); }
+        toast("Entrada incorrecta: subida borrada");
+      }
+    } catch (err) { toast(err.message); }
+    this.frame();
+  },
+  // Un toque: se guarda la subida (y lo que marcaba Avanza). Si las funciones extra están activas y estás en la
+  // parada, además arranca el viaje verificado por GPS de siempre.
+  async onBoarded() {
+    const r = this.route, d = this.dir(), u = this.board, stopId = d.stops[u];
+    const res = await boarded({ route: r, dir: d, stopId, gps: trip.gps, waitedSince: wait.cur?.stopId === stopId ? wait.cur.since : null, first: this.firstSeen?.u === u ? this.firstSeen : null });
+    if (trip.unlocked && trip.gps) { try { await checkIn(r, d, u); await board(r, d, this.dest); this.renderTop(); } catch { /* lejos de la parada: queda sólo la subida */ } }
+    const m = res.avanzaMin;
+    toast(m == null ? "Subida anotada, ¡gracias!" : m <= 1 ? "Subida anotada · Avanza acertó" : `Subida anotada · Avanza aún marcaba ${m} min`);
+  },
+
   // ---------- Funciones sociales ----------
   renderExtra() {
-    const el = $("extra"), r = this.route, d = this.dir(), v = vehicle(r), net = app.net;
+    const el = $("extra"), r = this.route, d = this.dir(), net = app.net;
     if (!app.social) { el.innerHTML = ""; return; }
-    if (!trip.unlocked) {
-      el.innerHTML = `<div class="extra-wall"><div><b>Accede a funciones extra</b><span class="meta">Avisa de que estás en la parada y cuándo subes. Anónimo y verificado por ubicación.</span></div><button class="cta small" data-x="wall">Ver</button></div>`;
-      return;
-    }
-    if (!trip.gps) {
-      el.innerHTML = `<div class="extra-box"><span class="meta">${trip.gpsError || "Buscando tu ubicación…"} Sin ubicación no se pueden enviar avisos.</span>
-        <button class="board" disabled>He cogido el ${v}</button><button class="ghost-btn" data-x="gps">Reintentar ubicación</button></div>`;
-      return;
-    }
     if (trip.ride) {
       const rd = trip.ride, mine = rd.route === r.id && rd.dir === d.dir;
       const destId = rd.dest != null ? net.byId[rd.route].dirs.find((x) => x.dir === rd.dir).stops[rd.dest] : null;
@@ -347,21 +498,13 @@ export default {
         <button class="board" data-x="end">Me he bajado</button></div>`;
       return;
     }
-    const near = nearestStop(net, d, trip.gps.p), tol = 60 + Math.min(trip.gps.acc, 40);
-    if (trip.checkin && trip.checkin.route === r.id && trip.checkin.dir === d.dir) {
-      const s = net.stops[d.stops[trip.checkin.stop]];
-      const still = haversine(trip.gps.p, s.p) <= 120 + Math.min(trip.gps.acc, 40);
-      el.innerHTML = `<div class="extra-box"><span class="meta">Esperando en <b>${esc(s.name)}</b>${this.dest != null ? ` · bajas en <b>${esc(net.stops[d.stops[this.dest]].name)}</b>` : " · marca dónde te bajas"}</span>
-        <button class="board" data-x="board" ${still ? "" : "disabled"}>He cogido el ${v}</button>
-        ${still ? "" : `<span class="meta warn">Te has alejado de la parada; vuelve para avisar.</span>`}
-        <button class="ghost-btn" data-x="cancel">Ya no espero</button></div>`;
+    // «He subido» está junto al tiempo de llegada; aquí sólo se ofrece verificarlo con la ubicación.
+    if (!trip.unlocked) {
+      el.innerHTML = this.board == null ? "" : `<div class="extra-wall"><div><b>Verifica tus subidas</b><span class="meta">Con tu ubicación comprobamos que subes de verdad y seguimos el bus contigo. Anónimo.</span></div><button class="cta small" data-x="wall">Ver</button></div>`;
       return;
     }
-    const ok = near.d <= tol && trip.gps.acc <= 100;
-    el.innerHTML = `<div class="extra-box">
-      <button class="board alt" data-x="checkin" data-i="${near.i}" ${ok ? "" : "disabled"}>Estoy en ${esc(net.stops[near.id].name)}</button>
-      <span class="meta ${ok ? "" : "warn"}">${ok ? "Avisa cuando estés en la parada; después podrás marcar que has subido." : trip.gps.acc > 100 ? `Precisión del GPS baja (${Math.round(trip.gps.acc)} m). Espera unos segundos.` : `Estás a ${Math.round(near.d)} m de la parada más cercana de esta línea. Acércate para avisar.`}</span>
-      <button class="board" disabled title="Primero indica que estás en la parada">He cogido el ${v}</button></div>`;
+    el.innerHTML = trip.gps ? "" : `<div class="extra-box"><span class="meta">${trip.gpsError || "Buscando tu ubicación…"} Sin ubicación tus subidas cuentan como no verificadas.</span>
+      <button class="ghost-btn" data-x="gps">Reintentar ubicación</button></div>`;
   },
   async onExtraClick(e) {
     const b = e.target.closest("[data-x]"); if (!b) return;
@@ -376,5 +519,5 @@ export default {
     } catch (err) { toast(err.message); }
     this.frame();
   },
-  leave() { clearTimeout(this.timer); },
+  leave() { clearTimeout(this.timer); setMarker(app.map, "B", null); },
 };

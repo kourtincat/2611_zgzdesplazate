@@ -3,6 +3,7 @@ import { app, $, esc, go, fly, simpleTop, locate, myPos, badge, posteLabel, arri
 import { stopsNear, routesNear, nearestStop, dayType, secOfDay } from "../network.js";
 import { setPostes } from "../map.js";
 import { lineList } from "./explore.js";
+import { biziNear, biziClass } from "../bizi.js";
 import { scheduledPasses, fmtClock } from "../prediction.js";
 
 const norm = (s) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
@@ -76,7 +77,14 @@ export default {
       </div>
       <div class="list-head"><span class="meta">${line ? `Poste más cercano de la ${esc(line.short)} ${where}, en cada sentido` : `${near.length} postes a menos de 600 m ${where}`}</span>
       <button class="pill cool" id="find-refresh" data-cool="10">↻ Actualizar</button></div>
-      <div id="near-postes">${near.map((s) => this.card(s, null)).join("") || `<p class="meta">No hay paradas cerca. Prueba otro punto.</p>`}</div>`;
+      <div id="near-postes">${near.map((s) => this.card(s, null)).join("") || `<p class="meta">No hay paradas cerca. Prueba otro punto.</p>`}</div>
+      <div id="near-bizi"></div>`;
+    biziNear(p).then((list) => {
+      const el = $("near-bizi");
+      if (!el || !list.length) return;
+      el.innerHTML = `<div class="block-title">Bizi cerca</div>` + list.map((s) => `<div class="bizi-row"><span class="bz-ico ${biziClass(s)}">${s.on ? s.bikes : "×"}</span>
+        <span class="rr-main"><b>${esc(s.name)}</b><span class="meta">${Math.round(s.d)} m · ${s.on ? `${s.bikes} bicis · ${s.docks} anclajes libres` : "fuera de servicio"}</span></span></div>`).join("");
+    });
     el.querySelector(".line-filter").onclick = (e) => {
       const b = e.target.closest("[data-line]");
       if (!b) return;
@@ -93,7 +101,8 @@ export default {
   card(s, rows) {
     const st = app.net.stops[s.id];
     return `<div class="poste-card" data-id="${s.id}">
-      <div class="pc-head"><strong>${esc(st.name)}</strong><span class="meta">${posteLabel(app.net, s.id)} · ${Math.round(s.d)} m</span></div>
+      <div class="pc-head"><span class="pc-title"><strong>${esc(st.name)}</strong><span class="meta">${posteLabel(app.net, s.id)} · ${Math.round(s.d)} m</span></span>
+        <button class="go-dest" data-go="${s.id}">¿A dónde vas? →</button></div>
       ${lineTimes(app.net, s.id, rows).filter((x) => !s.only || (x.route === s.only.route && x.dirIdx === s.only.dirIdx)).map((x) => x.html).join("")}</div>`;
   },
   async loadTimes(near) {
@@ -106,6 +115,8 @@ export default {
     }));
   },
   onListClick(e) {
+    const g = e.target.closest("[data-go]");
+    if (g) { const st = app.net.stops[g.dataset.go]; return go("plan", { origin: { p: st.p, label: `${posteLabel(app.net, g.dataset.go)} · ${st.name}` } }); }
     const row = e.target.closest(".lt-row");
     if (row) return go("route", { routeId: row.dataset.route, dirIdx: +row.dataset.dir, board: +row.dataset.idx });
     const card = e.target.closest(".poste-card");

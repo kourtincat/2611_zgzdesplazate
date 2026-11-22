@@ -5,11 +5,23 @@
 //   GET  /api/habits?line=36&postes=…&type=L -> pasos habituales observados por el grabador
 //   GET  /api/live?route=36&dir=0            -> avisos confirmados (60 días) + usuarios en ruta ahora
 //   POST /api/checkin | /api/board | /api/trip/:id/progress | /api/trip/:id/end   (ver server/trips.mjs)
+//   GET  /api/push/key                       -> clave pública VAPID para suscribirse a notificaciones
+//   POST /api/wait | /api/wait/:id (cambiar aviso) | DELETE /api/wait/:id   -> «Estoy esperando» (server/push.mjs)
+//   POST /api/boarded                        -> «He subido» (guarda lo que marcaba Avanza; server/boardings.mjs)
+//   POST /api/boarded/:id/undo               -> «Entrada incorrecta» (borra esa subida, 30 min máx.)
+//   POST /api/feedback · GET /api/feedback (Authorization: Bearer FEEDBACK_TOKEN) -> buzón anónimo
+//   GET  /api/boardings?code=262[&line=35]   -> resumen de subidas en un poste (por línea si no se indica)
+//   GET  /api/activity?days=30               -> mapa de actividad: subidas por poste vs lo que marcaba Avanza
+//   GET  /api/bizi                           -> estaciones Bizi con bicis y anclajes libres (caché 60 s)
 import fs from "node:fs";
 import path from "node:path";
 import { poste, scanLine, healthStatus, posteStatus } from "./avanza.mjs";
 import { startRecorder, watch, habits } from "./recorder.mjs";
 import { initTrips, checkin, board, progress, end, liveTrackers, loadReports } from "./trips.mjs";
+import { vapidPublicKey, addWait, updateWait, removeWait } from "./push.mjs";
+import { initBoardings, recordBoarding, undoBoarding, boardingStats, activity, posteActivity } from "./boardings.mjs";
+import { addFeedback, listFeedback } from "./feedback.mjs";
+import { bizi } from "./bizi.mjs";
 
 let started = false;
 // Arranca red, viajes y grabador. En dev se llama en la primera petición /api; en producción, al arrancar (server/index.mjs).
@@ -18,6 +30,9 @@ export function boot() {
   const net = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), "public", "data", "network.json"), "utf8"));
   net.byId = Object.fromEntries(net.routes.map((r) => [r.id, r]));
   initTrips(net);
+  initBoardings(net);
+  // Bizi precargado y al día (1 petición/min al Ayuntamiento): su API a veces tarda, así nadie espera.
+  bizi(); setInterval(bizi, 60000).unref?.();
   startRecorder(net);
 }
 
@@ -80,15 +95,28 @@ export async function handleApi(req, res, next) {
         .map(({ route, dir, stop, ts }) => ({ route, dir, stop, ts }));
       return json(res, 200, { reports, trackers: liveTrackers(route, dir) });
     }
+    if (url.pathname === "/api/feedback" && req.method === "GET") return json(res, 200, listFeedback(req.headers.authorization));
+    if (url.pathname === "/api/push/key") return json(res, 200, { key: vapidPublicKey() });
+    if (url.pathname === "/api/boardings") return json(res, 200, q("line") ? boardingStats(q("code"), q("line")) : posteActivity(q("code")));
+    if (url.pathname === "/api/activity") return json(res, 200, activity(Math.min(90, Math.max(1, +q("days") || 30))));
+    if (url.pathname === "/api/bizi") return json(res, 200, await bizi());
+    const w = url.pathname.match(/^\/api\/wait\/([\w-]+)$/);
+    if (w && req.method === "DELETE") return json(res, 200, removeWait(w[1]));
     if (req.method === "POST") {
       const b = await readBody(req);
       if (url.pathname === "/api/checkin") return json(res, 200, checkin(b));
       if (url.pathname === "/api/board") return json(res, 201, board(b));
+      if (url.pathname === "/api/wait") return json(res, 201, addWait(b));
+      if (w) return json(res, 200, updateWait(w[1], b));
+      if (url.pathname === "/api/boarded") return json(res, 201, await recordBoarding(b));
+      const u = url.pathname.match(/^\/api\/boarded\/([\w-]+)\/undo$/);
+      if (u) return json(res, 200, undoBoarding(u[1], b));
+      if (url.pathname === "/api/feedback") return json(res, 201, addFeedback(b));
       const m = url.pathname.match(/^\/api\/trip\/([\w-]+)\/(progress|end)$/);
       if (m) return json(res, 200, m[2] === "progress" ? progress(m[1], b) : end(m[1]));
     }
     json(res, 404, { error: "no encontrado" });
   } catch (e) {
-    json(res, e.code && e.code < 600 ? e.code : 502, { error: String(e.message || e) });
+    json(res, Number.isInteger(e.code) && e.code >= 400 && e.code < 600 ? e.code : 502, { error: String(e.message || e) });
   }
 }

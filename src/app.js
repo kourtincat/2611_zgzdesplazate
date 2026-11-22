@@ -48,8 +48,10 @@ function enter(name, params, mode = "push") {
     const n = (history.state?.n || 0) + (mode === "push" && history.state ? 1 : 0);
     history[mode === "push" && history.state ? "pushState" : "replaceState"]({ view: name, params: plain(params), n }, "", toUrl(name, params));
   }
-  app.view.enter(params);
+  // Primero el Localizador a su altura: la cámara de la vista (fly/fitTo) se calcula con la zona de mapa visible.
   if (app.view.snap) snap(app.view.snap);
+  app.view.enter(params);
+  if (app.view.snap && app.view.snap !== current) snap(app.view.snap);
   record(name, app.params);
 }
 
@@ -74,47 +76,89 @@ function stopIdx(net, dir, ref) {
   return i >= 0 ? i : null;
 }
 
+// URLs legibles, todo en la ruta (sin ?parámetros):
+//   /poste/236/plaza-aragon-capitania          /parada/<id>/<nombre>   (tranvía, sin número de poste)
+//   /linea/35/hacia-parque-goya/sube-236/baja-707/destino-ezjmgu4h
+//   /cerca/linea-35/en-ezjmgu4h                /bizi/en-ezjmgu4h        /lineas   /ir   /info
+// Los puntos del mapa van como geohash (8 letras ≈ 20 m): cortos, sin puntos ni comas.
+// Se siguen entendiendo las URLs antiguas con ?sentido=&sube=&baja=&hasta=&linea=&en=.
+export const slug = (s) => String(s).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase()
+  .replace(/n\.?\s*º/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "x";
+const GH = "0123456789bcdefghjkmnpqrstuvwxyz";
+export function geohash([lon, lat], len = 8) {
+  let la = [-90, 90], lo = [-180, 180], h = "", bit = 0, ch = 0, even = true;
+  while (h.length < len) {
+    const r = even ? lo : la, v = even ? lon : lat, mid = (r[0] + r[1]) / 2;
+    if (v >= mid) { ch = (ch << 1) | 1; r[0] = mid; } else { ch <<= 1; r[1] = mid; }
+    even = !even;
+    if (++bit === 5) { h += GH[ch]; bit = 0; ch = 0; }
+  }
+  return h;
+}
+export function ungeohash(h) {
+  let la = [-90, 90], lo = [-180, 180], even = true;
+  for (const c of String(h)) {
+    const v = GH.indexOf(c);
+    if (v < 0) return null;
+    for (let b = 4; b >= 0; b--) { const r = even ? lo : la, mid = (r[0] + r[1]) / 2; if ((v >> b) & 1) r[0] = mid; else r[1] = mid; even = !even; }
+  }
+  return [+((lo[0] + lo[1]) / 2).toFixed(6), +((la[0] + la[1]) / 2).toFixed(6)];
+}
+// Sentido de una línea como texto: «hacia-parque-goya» (si los dos sentidos se llaman igual, «sentido-2»).
+const dirSlug = (r, i) => { const s = slug(r.dirs[i].headsign); return r.dirs.some((d, j) => j !== i && slug(d.headsign) === s) ? `sentido-${i + 1}` : `hacia-${s}`; };
+const seg = (parts, prefix) => parts.find((x) => x.startsWith(prefix + "-"))?.slice(prefix.length + 1) ?? null;
+
 export function toUrl(name, p = {}) {
-  const net = app.net, q = new URLSearchParams();
+  const net = app.net;
   if (name === "poste") {
     const st = net.stops[p.id];
-    return st?.code ? `/poste/${st.code}` : `/parada/${encodeURIComponent(p.id)}`;
+    return st?.code ? `/poste/${st.code}/${slug(st.name)}` : `/parada/${encodeURIComponent(p.id)}/${slug(st?.name || "")}`;
   }
   if (name === "route") {
-    const r = net.byId[p.routeId], dirIdx = p.dirIdx || 0, d = r.dirs[dirIdx];
-    if (dirIdx) q.set("sentido", dirIdx);
-    if (p.board != null) q.set("sube", stopRef(net, d.stops[p.board]));
-    if (p.dest != null) q.set("baja", stopRef(net, d.stops[p.dest]));
-    return `/linea/${encodeURIComponent(r.short)}${q.size ? `?${q}` : ""}`;
+    const r = net.byId[p.routeId], dirIdx = p.dirIdx || 0, d = r.dirs[dirIdx], out = [`/linea/${encodeURIComponent(r.short.toLowerCase())}`, dirSlug(r, dirIdx)];
+    if (p.board != null) out.push(`sube-${stopRef(net, d.stops[p.board])}`);
+    if (p.board != null && p.dest != null) out.push(`baja-${stopRef(net, d.stops[p.dest])}`);
+    if (p.board != null && p.to?.p) out.push(`destino-${geohash(p.to.p)}`);
+    return out.join("/");
   }
   if (name === "find") {
-    if (p.line) q.set("linea", p.line);
-    if (p.point) q.set("en", p.point.map((x) => x.toFixed(5)).join(","));
-    return `/cerca${q.size ? `?${q}` : ""}`;
+    const out = ["/cerca"];
+    if (p.line) out.push(`linea-${slug(p.line)}`);
+    if (p.point) out.push(`en-${geohash(p.point)}`);
+    return out.join("/");
   }
+  if (name === "bizi") return p.point ? `/bizi/en-${geohash(p.point)}` : "/bizi";
   if (name === "explore") return "/lineas";
   if (name === "plan") return "/ir";
+  if (name === "info") return p.section ? `/info/${p.section}` : "/info";
   return "/";
 }
 
 export function fromUrl(loc = location) {
   const net = app.net, parts = loc.pathname.split("/").filter(Boolean).map(decodeURIComponent), q = new URLSearchParams(loc.search);
-  const [a, b] = parts;
+  const [a, b] = parts, rest = parts.slice(2);
+  const pt = (v) => { if (!v) return null; if (/^[0-9b-hjkmnp-z]{5,12}$/.test(v)) return ungeohash(v); const x = v.split(",").map(Number); return x.length === 2 && x.every(Number.isFinite) ? x : null; };
   if (a === "poste" && net.byCode[b]) return { name: "poste", params: { id: net.byCode[b] } };
   if (a === "parada" && net.byStop[b]) return { name: "poste", params: { id: b } };
   if (a === "linea" && b) {
     const r = findRoute(net, b);
     if (!r) return null;
-    const dirIdx = Math.min(+q.get("sentido") || 0, r.dirs.length - 1), d = r.dirs[dirIdx];
-    const board = stopIdx(net, d, q.get("sube")), dest = stopIdx(net, d, q.get("baja"));
-    return { name: "route", params: { routeId: r.id, dirIdx, board, dest: board != null && dest > board ? dest : null } };
+    const ds = rest.find((x) => x.startsWith("hacia-") || x.startsWith("sentido-"));
+    let dirIdx = ds ? r.dirs.findIndex((_, i) => dirSlug(r, i) === ds) : -1;
+    if (dirIdx < 0) dirIdx = Math.min(+q.get("sentido") || 0, r.dirs.length - 1);
+    const d = r.dirs[dirIdx];
+    const board = stopIdx(net, d, seg(rest, "sube") ?? q.get("sube")), dest = stopIdx(net, d, seg(rest, "baja") ?? q.get("baja"));
+    const h = pt(seg(rest, "destino") ?? q.get("hasta")), to = h ? { p: h, label: placeLabel(net, h) } : null;
+    return { name: "route", params: { routeId: r.id, dirIdx, board, dest: board != null && dest > board ? dest : null, to: board != null ? to : null } };
   }
   if (a === "cerca") {
-    const en = q.get("en")?.split(",").map(Number);
-    return { name: "find", params: { tab: "dist", line: q.get("linea") || null, point: en?.length === 2 && en.every(Number.isFinite) ? en : null } };
+    const all = parts.slice(1), line = seg(all, "linea") ?? q.get("linea");
+    return { name: "find", params: { tab: "dist", line: line ? findRoute(net, line)?.short || null : null, point: pt(seg(all, "en") ?? q.get("en")) } };
   }
+  if (a === "bizi") return { name: "bizi", params: { point: pt(seg(parts.slice(1), "en")) } };
   if (a === "lineas") return { name: "explore", params: {} };
   if (a === "ir") return { name: "plan", params: {} };
+  if (a === "info") return { name: "info", params: { section: b || null } };
   return null;
 }
 export const findRoute = (net, short) => net.routes.find((r) => r.short.toLowerCase() === String(short).toLowerCase());
@@ -136,9 +180,11 @@ export function start() {
 
 // ---------- Localizador (panel inferior deslizable) ----------
 const SNAPS = { peek: 0.17, low: 0.4, half: 0.55, full: 0.92 };
-let current = "half";
+let current = "half", lastOpen = "half";
+export const snapNow = () => current;
 export function snap(name) {
   current = name;
+  if (name !== "peek") lastOpen = name;
   document.documentElement.style.setProperty("--sheet-visible", `${SNAPS[name] * 100}dvh`);
   $("sheet").dataset.snap = name;
   document.body.dataset.snap = name;
@@ -173,20 +219,45 @@ export function initSheet() {
     if (!dragging) return;
     dragging = false; sheet.classList.remove("dragging");
     const moved = startY - e.clientY, frac = sheet.getBoundingClientRect().height / innerHeight;
-    if (Math.abs(moved) < 6) return e.target.closest(".grip") && snap(current === "full" ? "peek" : current === "peek" ? "half" : "full"); // toque en el asa = alterna
+    if (Math.abs(moved) < 6) return toggleSheet(); // toque = plegar / desplegar
     snap(Object.entries(SNAPS).sort((a, b) => Math.abs(a[1] - frac) - Math.abs(b[1] - frac))[0][0]);
   };
   grip.addEventListener("pointerup", end);
+  const g = grip.querySelector(".grip");
+  g.setAttribute("role", "button"); g.tabIndex = 0; g.setAttribute("aria-label", "Plegar o desplegar el panel");
+  g.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleSheet(); } });
   grip.addEventListener("pointercancel", end);
   snap("half");
   addEventListener("resize", () => padMap());
 }
 
-// ---------- "Empezar aquí" ----------
+// Plegado <-> la última altura abierta (o media, si venía de pantalla completa: así se ve el mapa).
+export function toggleSheet() {
+  if (innerWidth >= 900) return;
+  snap(current === "peek" ? (lastOpen === "full" ? "half" : lastOpen) : "peek");
+}
+
+// ---------- Punto tocado en el mapa ----------
+// Por defecto ofrece «Empezar aquí» (origen de un trayecto). Si ya estás mirando un poste o tu parada de una línea,
+// la vista lo cambia por «Quiero ir aquí» (pickGo): el punto pasa a ser el destino desde ese poste.
 export function setPick(p, label = null) {
   app.pick = p ? { p, label } : null;
   setMarker(app.map, "pick", p, { className: "pin" });
-  $("start-here").hidden = !p;
+  const b = $("start-here"), dest = !!(p && app.view?.pickGo && app.view.canPickGo?.() !== false);
+  b.hidden = !p;
+  b.textContent = dest ? "Quiero ir aquí →" : "Empezar aquí →";
+  b.classList.toggle("dest", dest);
+}
+export function usePick() {
+  const k = app.pick; if (!k) return;
+  if (app.view?.pickGo && app.view.canPickGo?.() !== false) { setPick(null); return app.view.pickGo(k); }
+  go("plan", { origin: { p: k.p, label: k.label || "Punto elegido" } });
+}
+// Nombre legible de un punto: la parada más cercana.
+export function placeLabel(net, p) {
+  let best = null, bd = 400;
+  for (const id in net.byStop) { const d = Math.hypot((net.stops[id].p[0] - p[0]) * 74, (net.stops[id].p[1] - p[1]) * 111) * 1000; if (d < bd) { bd = d; best = id; } }
+  return best ? `Cerca de ${net.stops[best].name}` : "Punto en el mapa";
 }
 
 // ---------- GPS ----------

@@ -8,6 +8,7 @@ const STYLE = "https://tiles.openfreemap.org/styles/dark";
 const EMPTY = { type: "FeatureCollection", features: [] };
 export const TRIP_RED = "#ff2a2a";
 const BUS_YELLOW = "#ffd400";
+export const BIZI_BLUE = "#0072ce";
 
 async function darkStyle() {
   const style = await (await fetch(STYLE)).json();
@@ -18,6 +19,9 @@ async function darkStyle() {
     else if (/^(landuse|landcover|park)/.test(l.id)) l.paint = { ...l.paint, "fill-opacity": 0.25 };
     else if (/^highway|^road|^railway/.test(l.id) && l.type === "line") l.paint = { ...l.paint, "line-color": "#1b1d22" };
     else if (l.type === "symbol" && !/^place_|water_name|highway_name/.test(l.id)) l.layout = { ...l.layout, visibility: "none" };
+    // Nombres de calles y barrios legibles sobre fondo negro (el estilo original los deja casi invisibles).
+    else if (/^highway_name/.test(l.id)) l.paint = { ...l.paint, "text-color": "#b9bdc5", "text-halo-color": "#000", "text-halo-width": 1.6, "text-halo-blur": 0 };
+    else if (/^place_/.test(l.id)) l.paint = { ...l.paint, "text-color": "#c9ccd2", "text-halo-color": "#000", "text-halo-width": 1.6 };
   }
   return style;
 }
@@ -49,9 +53,14 @@ export async function createMap(container, bounds) {
       "fill-extrusion-opacity": 0.85,
     },
   });
-  for (const id of ["net", "sel", "trip", "plan", "arrows", "stops", "postes", "buses"]) map.addSource(id, { type: "geojson", data: EMPTY });
+  for (const id of ["net", "sel", "trip", "plan", "arrows", "stops", "postes", "buses", "bizi", "places"]) map.addSource(id, { type: "geojson", data: EMPTY });
   const round = { "line-cap": "round", "line-join": "round" };
   map.addLayer({ id: "net", type: "line", source: "net", layout: round, paint: { "line-color": ["get", "color"], "line-width": 2.5, "line-opacity": ["get", "op"] } });
+  // Calle por la que pasa la línea elegida, en gris claro, para leer el recorrido sobre el plano oscuro.
+  map.addLayer({ id: "sel-street", type: "line", source: "sel", layout: round, filter: ["get", "active"],
+    paint: { "line-color": "#3d4049", "line-width": ["interpolate", ["exponential", 1.6], ["zoom"], 12, 6, 15, 18, 18, 60], "line-opacity": 0.95 } });
+  map.addLayer({ id: "plan-street", type: "line", source: "plan", layout: round, filter: ["==", ["get", "kind"], "ride"],
+    paint: { "line-color": "#3d4049", "line-width": ["interpolate", ["exponential", 1.6], ["zoom"], 12, 6, 15, 18, 18, 60], "line-opacity": 0.95 } });
   map.addLayer({ id: "sel-glow", type: "line", source: "sel", layout: round, filter: ["get", "active"],
     paint: { "line-color": ["get", "color"], "line-width": 22, "line-blur": 14, "line-opacity": 0.4, "line-offset": ["get", "off"] } });
   map.addLayer({ id: "sel-casing", type: "line", source: "sel", layout: round,
@@ -82,11 +91,29 @@ export async function createMap(container, bounds) {
   map.addLayer({ id: "stop-marks", type: "symbol", source: "stops", filter: key,
     layout: { "text-field": ["case", ["get", "board"], "SUBES", "BAJAS"], "text-font": ["Noto Sans Bold"], "text-size": 12, "text-offset": [0, -1.8], "text-allow-overlap": true, "text-letter-spacing": 0.08 },
     paint: { "text-color": "#fff", "text-halo-color": TRIP_RED, "text-halo-width": 4 } });
+  map.addLayer({ id: "postes-glow", type: "circle", source: "postes", filter: ["get", "sel"],
+    paint: { "circle-radius": 26, "circle-color": BUS_YELLOW, "circle-blur": 0.9, "circle-opacity": 0.55, "circle-pitch-alignment": "map" } });
   map.addLayer({ id: "postes", type: "circle", source: "postes",
-    paint: { "circle-radius": ["case", ["get", "sel"], 10, 7], "circle-color": ["case", ["get", "sel"], BUS_YELLOW, "#fff"], "circle-stroke-color": "#000", "circle-stroke-width": 3, "circle-pitch-alignment": "map" } });
+    paint: { "circle-radius": ["case", ["get", "sel"], 12, 7], "circle-color": ["case", ["get", "sel"], BUS_YELLOW, "#fff"], "circle-stroke-color": "#000", "circle-stroke-width": 3, "circle-pitch-alignment": "map" } });
   map.addLayer({ id: "poste-labels", type: "symbol", source: "postes",
     layout: { "text-field": ["get", "label"], "text-font": ["Noto Sans Bold"], "text-size": 11, "text-offset": [0, 1.4], "text-anchor": "top", "text-max-width": 10 },
     paint: { "text-color": "#fff", "text-halo-color": "#000", "text-halo-width": 2 } });
+  // Capa «Bizi»: aro azul corporativo; el relleno indica disponibilidad (lleno ≥ 5 bicis · claro 1-4 · vacío 0;
+  // gris = fuera de servicio). Dentro, el nº de bicis libres.
+  map.addLayer({ id: "bizi", type: "circle", source: "bizi", minzoom: 11.5, layout: { visibility: "none" },
+    paint: {
+      "circle-radius": ["interpolate", ["linear"], ["zoom"], 12, 5, 16, 12],
+      "circle-color": ["case", ["!", ["get", "on"]], "#2a2c31", [">=", ["get", "bikes"], 5], BIZI_BLUE, [">", ["get", "bikes"], 0], "rgba(0,114,206,0.38)", "#0b0b0d"],
+      "circle-stroke-color": ["case", ["!", ["get", "on"]], "#666", BIZI_BLUE],
+      "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 12, 2, 16, 3], "circle-pitch-alignment": "map",
+    } });
+  map.addLayer({ id: "bizi-labels", type: "symbol", source: "bizi", minzoom: 14, layout: { visibility: "none", "text-field": ["to-string", ["get", "bikes"]], "text-font": ["Noto Sans Bold"], "text-size": 11, "text-allow-overlap": true },
+    paint: { "text-color": ["case", ["==", ["get", "bikes"], 0], "#6fb6ec", "#fff"] } });
+  // Destinos populares («Cómo llegar»): se tocan en el mapa para elegirlos.
+  map.addLayer({ id: "places", type: "circle", source: "places", layout: { visibility: "none" },
+    paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 11, 4, 16, 8], "circle-color": "#fff", "circle-stroke-color": TRIP_RED, "circle-stroke-width": 2.5, "circle-pitch-alignment": "map" } });
+  map.addLayer({ id: "place-labels", type: "symbol", source: "places", minzoom: 12, layout: { visibility: "none", "text-field": ["get", "name"], "text-font": ["Noto Sans Bold"], "text-size": 11, "text-offset": [0, 1.2], "text-anchor": "top", "text-max-width": 9 },
+    paint: { "text-color": "#fff", "text-halo-color": TRIP_RED, "text-halo-width": 2 } });
   map.addLayer({ id: "buses-glow", type: "circle", source: "buses", filter: ["!=", ["get", "kind"], "schedule"],
     paint: { "circle-radius": 18, "circle-color": BUS_YELLOW, "circle-blur": 1, "circle-opacity": 0.6, "circle-pitch-alignment": "map" } });
   map.addLayer({ id: "buses", type: "circle", source: "buses",
@@ -103,7 +130,42 @@ export async function createMap(container, bounds) {
   return map;
 }
 
+// Tema claro: se cambian en caliente los colores del mapa base (y de lo propio que dependa del fondo);
+// el oscuro restaura los valores originales, guardados la primera vez.
+const OWN = new Set(["buildings-3d", "net", "sel-street", "plan-street", "bizi", "bizi-labels", "places", "place-labels", "sel-glow", "sel-casing", "sel-line", "plan-walk", "plan-casing", "plan-ride", "trip-line", "arrows",
+  "stops", "stop-labels", "stop-marks", "postes-glow", "postes", "poste-labels", "buses-glow", "buses", "bus-labels"]);
+let darkPaint = null;
+function lightPaint(l) {
+  const id = l.id;
+  if (l.type === "background") return { "background-color": "#efeee9" };
+  if (/water/.test(id) && l.type === "fill") return { "fill-color": "#b7d2e8" };
+  if (/park|landcover_wood|landcover_grass/.test(id) && l.type === "fill") return { "fill-color": "#d5e8c8", "fill-opacity": 0.7 };
+  if (l.type === "fill") return { "fill-opacity": 0 };
+  if (/^highway|^road|^railway|^bridge|^tunnel/.test(id) && l.type === "line") return { "line-color": /railway/.test(id) ? "#c9c9c4" : "#ffffff" };
+  if (/boundary/.test(id) && l.type === "line") return { "line-color": "#b8b8b2" };
+  if (l.type === "symbol") return { "text-color": "#3c3f45", "text-halo-color": "#ffffff" };
+  return {};
+}
+export function setMapTheme(map, theme) {
+  const base = map.getStyle().layers.filter((l) => !OWN.has(l.id));
+  if (!darkPaint) darkPaint = Object.fromEntries(base.map((l) => [l.id, Object.fromEntries(Object.keys(lightPaint(l)).map((k) => [k, map.getPaintProperty(l.id, k)]))]));
+  for (const l of base) {
+    const p = theme === "light" ? lightPaint(l) : darkPaint[l.id];
+    for (const [k, v] of Object.entries(p || {})) { try { map.setPaintProperty(l.id, k, v ?? undefined); } catch {} }
+  }
+  const light = theme === "light";
+  map.setPaintProperty("buildings-3d", "fill-extrusion-color", light
+    ? ["interpolate", ["linear"], ["coalesce", ["get", "render_height"], 8], 0, "#e2e0da", 60, "#cfccc4"]
+    : ["interpolate", ["linear"], ["coalesce", ["get", "render_height"], 8], 0, "#0d0e11", 60, "#1a1c22"]);
+  map.setPaintProperty("plan-walk", "line-color", light ? "#222" : "#fff");
+  for (const id of ["sel-street", "plan-street"]) map.setPaintProperty(id, "line-color", light ? "#d3d5da" : "#3d4049");
+  map.setPaintProperty("net", "line-opacity", light ? ["min", 1, ["*", 1.6, ["get", "op"]]] : ["get", "op"]);
+}
+
 export const setData = (map, source, data) => map.getSource(source).setData(data || EMPTY);
+export const setBizi = (map, stations) => setData(map, "bizi", fc(stations.map((s) => point(s.p, { id: s.id, bikes: s.bikes ?? 0, docks: s.docks ?? 0, on: s.on }))));
+export const setPlaces = (map, list) => setData(map, "places", fc(list.map((x) => point(x.p, { id: x.id, name: x.name }))));
+export function showLayers(map, ids, on) { for (const id of ids) map.setLayoutProperty(id, "visibility", on ? "visible" : "none"); }
 export function clearLayers(map) { for (const s of ["sel", "trip", "plan", "stops", "postes", "buses"]) setData(map, s); animateArrows(map, null); }
 
 // Red completa. `near` = ids de líneas a resaltar (null = todas por igual).

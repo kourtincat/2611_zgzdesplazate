@@ -8,6 +8,7 @@
     "dev:mobile": "vite --mode mobile",
     "build:data": "node scripts/build-network.mjs",
     "seed:reports": "node scripts/seed-reports.mjs",
+    "seed:boardings": "node scripts/seed-boardings.mjs",
     "build": "vite build",
     "preview": "vite preview",
     "update:data": "node scripts/build-network.mjs --refresh",
@@ -15,6 +16,8 @@
     "serve": "vite build && node server/index.mjs"
   },
   "dependencies": {
+    "@fontsource/inter-tight": "^5.3.0",
+    "@fontsource/jetbrains-mono": "^5.3.0",
     "maplibre-gl": "^4.7.1"
   },
   "devDependencies": {

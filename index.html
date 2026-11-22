@@ -5,11 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#000000" />
   <title>ZGZ Desplázate</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@500;700;900&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/icons/icon-192.png" type="image/png" />
+  <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black" />
   <link rel="stylesheet" href="/src/style.css" />
 </head>
 <body data-view="loading">
+  <script>try { if (localStorage.getItem("pw-theme") === "light") document.documentElement.dataset.theme = "light"; } catch {}</script>
   <div id="map"></div>
 
   <!-- Bienvenida (sólo la primera vez) -->
@@ -35,10 +39,15 @@
     </div>
   </section>
 
+  <!-- «Estoy esperando»: visible en cualquier pantalla mientras esperas un bus -->
+  <button id="wait-bar" class="wait-bar" hidden></button>
+
   <div class="map-tools">
-    <button id="dim-btn" class="pill" title="Alternar 2D / 3D">2D</button>
-    <button id="center-btn" class="pill icon" title="Centrar" aria-label="Centrar">⌖</button>
+    <button id="theme-btn" class="pill icon" title="Tema claro / oscuro" aria-label="Cambiar a tema claro">☀</button>
     <button id="gps-btn" class="pill icon" title="Mi ubicación" aria-label="Mi ubicación">◎</button>
+    <button id="social-btn" class="pill icon" title="Funciones sociales" aria-label="Funciones sociales" aria-pressed="true">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="9" cy="8" r="3.2"/><path d="M3 19c.6-3.2 3-5 6-5s5.4 1.8 6 5"/><circle cx="17" cy="9" r="2.4"/><path d="M16.5 14.2c2.4.2 4 1.8 4.5 4.3"/></svg>
+    </button>
   </div>
 
   <!-- Localizador: panel deslizable -->
@@ -53,11 +62,11 @@
       <p class="label">Funciones extra · anónimas</p>
       <h2>Ayuda a predecir el bus real</h2>
       <ol class="steps">
-        <li><b>Estoy en la parada.</b> Avisas de que esperas en una parada de la línea.</li>
-        <li><b>He cogido el bus.</b> Marcas el momento en que subes y, si quieres, dónde te bajas.</li>
+        <li><b>He subido.</b> Un toque al subir: guardamos la hora real y lo que marcaba Avanza en ese momento.</li>
+        <li><b>Bajo en…</b> Si quieres, marcas dónde te bajas y te avisamos al llegar.</li>
         <li><b>Verificado por ubicación.</b> Comprobamos que estás en la parada y que luego avanzas por la ruta, para que nadie pueda engañar al sistema.</li>
       </ol>
-      <p class="meta">No pedimos cuenta ni datos personales. Sólo se guarda línea, parada y hora; tu recorrido no se almacena. Puedes ocultar todo esto en el menú principal (Opciones sociales).</p>
+      <p class="meta">No pedimos cuenta ni datos personales. Sólo se guarda línea, parada y hora; tu recorrido no se almacena. Puedes ocultar todo esto con el botón de personas del mapa.</p>
       <div class="dlg-actions"><button value="cancel" class="ghost-btn">Ahora no</button><button value="ok" class="cta small">Activar con mi ubicación</button></div>
     </form>
   </dialog>

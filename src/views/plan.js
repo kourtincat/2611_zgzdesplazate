@@ -4,6 +4,9 @@ import { plan } from "../planner.js";
 import { routesNear } from "../network.js";
 import { setNetwork, setMarker, setData, fc, line, setPostes } from "../map.js";
 import { fmtClock } from "../prediction.js";
+import { PLACES, DISTRICTS } from "../places.js";
+import { setPlaces, showLayers } from "../map.js";
+import { loadBizi, showBizi, biziState } from "../bizi.js";
 import { haversine } from "../geo.js";
 
 const WALK = 1.2, DETOUR = 1.3;
@@ -20,8 +23,22 @@ export default {
   },
   get stage() { const p = app.params; return !p.origin ? "origin" : !p.dest ? "dest" : "results"; },
 
+  // Lugares que se pueden elegir con un toque (lista y mapa) mientras se elige origen o destino.
+  quickPlaces(which) {
+    return `<div class="block-title">${which === "origin" ? "Salir de un lugar conocido" : "Destinos populares"}</div>
+      <div class="places">${PLACES.map((x) => `<button class="place-chip" data-place="${x.id}"><span aria-hidden="true">${x.icon}</span>${esc(x.name)}</button>`).join("")}</div>
+      <label class="field barrio"><select id="pl-barrio" aria-label="Ir a un barrio"><option value="">${which === "origin" ? "Salir de un barrio…" : "Ir a un barrio…"}</option>
+        ${DISTRICTS.map((d, i) => `<option value="${i}">${esc(d.name)}</option>`).join("")}</select></label>
+      <p class="meta">En el mapa también puedes tocar un destino (punto blanco y rojo) o una estación Bizi (azul).</p>`;
+  },
+  showPickers(on) {
+    showLayers(app.map, ["places", "place-labels"], on);
+    showBizi(on);
+    if (on) { setPlaces(app.map, PLACES); loadBizi(); }
+  },
   render() {
     const p = app.params, body = $("sheet-body");
+    this.showPickers(this.stage !== "results");
     setMarker(app.map, "A", p.origin?.p, { className: "pin-ab", text: "A" });
     setMarker(app.map, "B", p.dest?.p, { className: "pin-ab b", text: "B" });
     setData(app.map, "plan");
@@ -32,7 +49,9 @@ export default {
       body.innerHTML = `<h3 class="step-title">¿Desde dónde sales?</h3>
         <button class="cta" id="pl-gps">📍 Desde mi ubicación</button>
         ${this.searchBox("Busca una calle y número o una parada")}
-        <p class="meta center">o toca el mapa para elegir el punto de partida</p>`;
+        <p class="meta center">o toca el mapa para elegir el punto de partida</p>
+        ${p.dest ? `<p class="meta">Destino ya elegido: <b>${esc(p.dest.label)}</b></p>` : ""}
+        ${this.quickPlaces("origin")}`;
       $("pl-gps").onclick = async () => { const fix = await locate(); if (fix) this.set("origin", { p: fix.p, label: "Mi ubicación" }); };
     } else if (this.stage === "dest") {
       const near = routesNear(app.net, p.origin.p, 700);
@@ -42,9 +61,12 @@ export default {
         <h3 class="step-title">Selecciona a dónde vas</h3>
         ${this.searchBox("Calle y número, lugar o parada de destino")}
         <p class="meta">Toca el mapa en tu destino. Resaltadas: las ${near.length} líneas que pasan cerca del origen
-        ${near.slice(0, 12).map((n) => badge(n.route, "xs")).join("")}</p>`;
+        ${near.slice(0, 12).map((n) => badge(n.route, "xs")).join("")}</p>
+        ${this.quickPlaces("dest")}`;
     } else this.renderResults();
     body.onclick = (e) => this.onClick(e);
+    const sel = $("pl-barrio");
+    if (sel) sel.onchange = () => { const d = DISTRICTS[+sel.value]; if (d) this.set(this.stage, { p: d.p, label: `Barrio ${d.name}` }); };
     this.bindSearch();
   },
 
@@ -71,7 +93,6 @@ export default {
         try { const geo = await (await fetch(`/api/geocode?q=${encodeURIComponent(q)}`)).json(); if (input.value.trim() === q) draw(geo); } catch { /* sin buscador externo */ }
       }, 350);
     };
-    setTimeout(() => input.focus(), 50);
   },
 
   set(which, val) {
@@ -145,6 +166,8 @@ export default {
 
   onClick(e) {
     const t = e.target;
+    const pl = t.closest("[data-place]");
+    if (pl) { const x = PLACES.find((y) => y.id === pl.dataset.place); return this.set(this.stage, { p: x.p, label: x.name }); }
     const res = t.closest("[data-res]");
     if (res) { const r = this.results[+res.dataset.res]; return this.set(this.stage === "origin" ? "origin" : this.stage === "dest" ? "dest" : "dest", { p: r.p, label: r.title }); }
     const edit = t.closest("[data-edit]");
@@ -158,6 +181,13 @@ export default {
       go("route", { routeId: l.route.id, dirIdx: l.dirIdx, board: l.from, dest: l.to });
     }
   },
+  // Tocar un destino popular o una estación Bizi en el mapa = elegirlo como origen/destino.
+  onFeature(f) {
+    if (this.stage === "results") return false;
+    if (f.layer.id === "places") { const x = PLACES.find((y) => y.id === f.properties.id); if (x) this.set(this.stage, { p: x.p, label: x.name }); return !!x; }
+    if (f.layer.id === "bizi") { const s = biziState.stations.find((y) => String(y.id) === String(f.properties.id)); if (s) this.set(this.stage, { p: s.p, label: `Bizi · ${s.name}` }); return !!s; }
+    return false;
+  },
   onMapClick(p) {
     const label = `Punto en el mapa`;
     if (this.stage === "origin") this.set("origin", { p, label });
@@ -170,5 +200,5 @@ export default {
     if (p.origin && p.dest) this.render();
     else if (p.origin) fly({ center: p.origin.p, zoom: 14.5 });
   },
-  leave() { setMarker(app.map, "A", null); setMarker(app.map, "B", null); },
+  leave() { setMarker(app.map, "A", null); setMarker(app.map, "B", null); this.showPickers(false); },
 };
