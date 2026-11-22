@@ -129,7 +129,13 @@ export function toUrl(name, p = {}) {
   }
   if (name === "bizi") return p.point ? `/bizi/en-${geohash(p.point)}` : "/bizi";
   if (name === "explore") return "/lineas";
-  if (name === "plan") return "/ir";
+  if (name === "plan") {
+    const out = ["/ir"];
+    if (p.origin?.p) out.push(`desde-${geohash(p.origin.p)}`);
+    if (p.dest?.p) out.push(`hasta-${geohash(p.dest.p)}`);
+    if (p.origin && p.dest && p.sel != null) out.push(`opcion-${p.sel + 1}`);
+    return out.join("/");
+  }
   if (name === "info") return p.section ? `/info/${p.section}` : "/info";
   return "/";
 }
@@ -157,7 +163,10 @@ export function fromUrl(loc = location) {
   }
   if (a === "bizi") return { name: "bizi", params: { point: pt(seg(parts.slice(1), "en")) } };
   if (a === "lineas") return { name: "explore", params: {} };
-  if (a === "ir") return { name: "plan", params: {} };
+  if (a === "ir") {
+    const all = parts.slice(1), o = pt(seg(all, "desde")), d = pt(seg(all, "hasta")), n = +seg(all, "opcion");
+    return { name: "plan", params: { origin: o ? { p: o, label: placeLabel(net, o) } : null, dest: d ? { p: d, label: placeLabel(net, d) } : null, sel: o && d && n > 0 ? n - 1 : null } };
+  }
   if (a === "info") return { name: "info", params: { section: b || null } };
   return null;
 }
@@ -295,6 +304,15 @@ export function paintCooldowns() {
 export const badge = (r, cls = "") => `<span class="lb ${cls}" style="--c:${r.color};--t:${r.text}">${esc(r.short)}</span>`;
 export const posteLabel = (net, id) => (net.stops[id].tram ? "Parada de tranvía" : `Poste ${net.stops[id].code ?? "—"}`);
 
+// Versión corta para la cabecera de línea: «● 07:00–01:30» (verde si está en servicio).
+export function serviceMini(route) {
+  const s = serviceInfo(route, dayType(), secOfDay());
+  if (!s.today) return `<span class="svc off">○ ${s.text}</span>`;
+  const range = `${fmtClock(s.first)}–${fmtClock(s.last)}`;
+  if (s.active) return `<span class="svc on" title="En servicio · salidas ${range}">● ${range}</span>`;
+  if (s.next != null) return `<span class="svc off">○ empieza ${fmtClock(s.next)}</span>`;
+  return `<span class="svc off">○ terminó por hoy</span>`;
+}
 export function serviceChip(route) {
   const s = serviceInfo(route, dayType(), secOfDay());
   if (!s.today) return `<span class="svc off">○ ${s.text}</span>`;
@@ -309,7 +327,7 @@ export function serviceChip(route) {
 export function topbar(html) { $("topbar").innerHTML = html; }
 export const simpleTop = (title, sub = "") => topbar(`<button class="icon-btn" data-nav="back" aria-label="Volver">←</button>
   <div class="top-title"><span class="label">${esc(sub)}</span><strong>${esc(title)}</strong></div>
-  <button class="icon-btn" data-nav="home" aria-label="Menú principal">☰</button>`);
+  <button class="icon-btn close-btn" data-nav="home" aria-label="Cerrar y volver al inicio">✕</button>`);
 
 export async function arrivals(code) {
   try { return await (await fetch(`/api/arrivals?poste=${code}`)).json(); } catch { return { ok: false, rows: [] }; }

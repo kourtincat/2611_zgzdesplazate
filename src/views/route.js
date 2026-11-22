@@ -1,7 +1,7 @@
 // Vista de línea (Localizador modo metro): explorar la línea con sus dos sentidos y seguirla en directo en la misma
 // pantalla. Sin parada elegida se ve la línea entera con sus buses; al tocar una parada se calcula cuándo llega,
 // subida/bajada, tiempo de trayecto, otras líneas del poste y funciones sociales.
-import { app, $, esc, go, fly, fitTo, snap, topbar, badge, posteLabel, cooled, toast, serviceChip, syncUrl, placeLabel } from "../app.js";
+import { app, $, esc, go, fly, fitTo, snap, topbar, badge, posteLabel, cooled, toast, serviceChip, serviceMini, syncUrl, placeLabel } from "../app.js";
 import { plan } from "../planner.js";
 import { nearestStop, dirLabel, dayType, secOfDay, connections, stopDone, feedLabel } from "../network.js";
 import { setLine, setStops, setTrip, setBuses, animateArrows, showPopup, setMarker, setData, fc, line } from "../map.js";
@@ -13,7 +13,7 @@ import { haversine } from "../geo.js";
 import { connChips } from "./explore.js";
 import { lineTimes } from "./find.js";
 import { isFav, toggleFav } from "../saved.js";
-import { wait, isWaiting, startWait, stopWait, setAlert, boarded, retryPush, lastBoarded, undoBoarded } from "../wait.js";
+import { wait, isWaiting, startWait, stopWait, setAlert, boarded, retryPush, lastBoarded, undoBoarded, canUndo, finishBoarded, setBoardedDest } from "../wait.js";
 
 const ALERTS = [1, 2, 3, 5, 8, 10];
 
@@ -42,21 +42,20 @@ export default {
 
   renderShell() {
     const r = this.route;
-    $("sheet-body").innerHTML = `
-      <div class="line-meta">${serviceChip(r)}</div>
-      ${r.dirs.length > 1 ? `<div class="label seg-title">Dirección</div>
-      <div class="dir-seg">${r.dirs.map((d, i) => { const l = dirLabel(app.net, r, d); return `<button data-dir="${i}"><small>${esc(l.from)}</small><b>→ ${esc(l.to)}</b></button>`; }).join("")}</div>` : ""}
+    $("sheet-body").innerHTML = `<div class="rv">
+      ${r.dirs.length > 1 ? `<div class="dir-block"><div class="label seg-title">Dirección</div>
+      <div class="dir-seg">${r.dirs.map((d, i) => { const l = dirLabel(app.net, r, d); return `<button data-dir="${i}"><small>${esc(l.from)}</small><b>→ ${esc(l.to)}</b></button>`; }).join("")}</div></div>` : ""}
       <div id="api-banner" class="banner" hidden>Avanza no responde. Mostramos la previsión por hábito (lo observado otros días) y el horario.</div>
       <p id="pick-hint" class="pick-hint">Toca una parada en el recorrido o en el mapa para ver cuándo llega el ${vehicle(r)} y marcar dónde subes.</p>
       <div class="stop-part">
       <div id="eta-card">
-        <div class="eta-stop"><span class="label">Subes en</span><strong id="stop-name">—</strong><span id="stop-meta" class="meta"></span>
+        <div class="eta-stop"><span class="label" id="eta-label">Subes en</span><strong id="stop-name">—</strong><span id="stop-meta" class="meta"></span>
           <button class="star-line" id="line-fav" aria-pressed="false">☆ Guardar en favoritos</button></div>
         <div class="eta-big"><span id="eta-value">—</span><span id="eta-sub" class="meta"></span></div>
       </div>
+      <div id="trip-sum" class="trip-sum" hidden></div>
       <div id="wait-box" class="wait-box"></div>
       <div id="to-box" class="to-box" hidden></div>
-      <div id="trip-sum" class="trip-sum" hidden></div>
       <div class="others"><div class="block-title">Otras líneas en este poste</div><div id="others" class="poste-card flat"></div></div>
       <p id="signal-note" class="note" hidden></p>
       </div>
@@ -75,7 +74,7 @@ export default {
         <div id="timeline"></div>
         <p id="habit-note" class="meta"></p>
       </div>
-      <p class="foot meta" id="foot"></p>`;
+      <p class="foot meta" id="foot"></p></div>`;
     cooled($("refresh-btn"), () => { this.poll(); toast("Actualizando poste…"); });
     cooled($("scan-btn"), () => this.scan());
     $("stops").onclick = (e) => this.onStopsClick(e);
@@ -93,9 +92,9 @@ export default {
     const r = this.route;
     topbar(`<button class="icon-btn" data-nav="back" aria-label="Volver">←</button>
       <div class="route-id">${badge(r, "lg")}
-        <div class="route-dir"><span class="label">${r.tram ? "Tranvía" : "Línea " + esc(r.short)} · ${esc(r.long)}</span>
+        <div class="route-dir"><span class="label">${r.tram ? "Tranvía" : "Línea " + esc(r.short)} · ${serviceMini(r)}</span>
           <span class="dir-text"><span class="dir-arrow">→</span> <b>${esc(this.dir().headsign)}</b></span></div></div>
-      <button class="icon-btn" data-nav="home" aria-label="Menú principal">☰</button>`);
+      <button class="icon-btn close-btn" data-nav="home" aria-label="Cerrar y volver al inicio">✕</button>`);
     for (const b of document.querySelectorAll(".dir-seg button")) { b.classList.toggle("on", +b.dataset.dir === this.dirIdx); b.disabled = !!trip.ride; }
   },
   // Cambio de sentido sin mover la cámara: la parada elegida pasa a la más cercana del otro sentido.
@@ -171,6 +170,7 @@ export default {
   },
   setDest(i) {
     this.dest = i; this.open = null;
+    setBoardedDest(i != null ? this.dir().stops[i] : null);
     if (trip.ride) trip.ride.dest = i;
     app.params.dest = i;
     syncUrl();
@@ -229,7 +229,12 @@ export default {
     const live = scanBuses.length ? scanBuses : pollBuses;
     const users = app.social ? this.live.trackers.filter((t) => !trip.ride || t.along !== trip.ride.along).map((t) => ({ T: tFromAlong(d, t.along), along: t.along, kind: "user" })) : [];
     const ghosts = live.length || users.length ? [] : scheduledBuses(d, type, nowSec).map((b) => ({ ...b, kind: "schedule" }));
-    const me = trip.ride && trip.ride.route === r.id && trip.ride.dir === d.dir && trip.ride.along != null ? [{ along: trip.ride.along, kind: "me", label: "TÚ" }] : [];
+    // ¿Has pulsado «He subido» en esta parada? Entonces vas en el bus: posición estimada con los tiempos entre paradas.
+    const lb = has ? lastBoarded() : null, onBoard = !!lb && lb.routeId === r.id && lb.dir === d.dir && lb.stopId === d.stops[u];
+    if (onBoard && this.dest == null && lb.destStopId) { const j = d.stops.indexOf(lb.destStopId); if (j > u) this.dest = j; }
+    const posT = onBoard ? Math.min(d.offsets[d.offsets.length - 1], d.offsets[u] + (now - lb.at) / 1000) : null;
+    const me = trip.ride && trip.ride.route === r.id && trip.ride.dir === d.dir && trip.ride.along != null ? [{ along: trip.ride.along, kind: "me", label: "TÚ" }]
+      : onBoard ? [{ along: alongFromT(d, posT), T: posT, kind: "me", label: "TÚ" }] : [];
     const etaU = (b) => (d.offsets[u] - b.T) * (b.f || 1);
     const all = [...live.map((b) => ({ ...b, kind: "live" })), ...users, ...ghosts].map((b) => ({ ...b, along: b.along ?? alongFromT(d, b.T) }));
     if (has) for (const b of all) if (b.kind === "live" && b.T <= d.offsets[u]) { const e = etaU(b); b.label = e < 45 ? "YA" : `${Math.round(e / 60)}'`; }
@@ -266,7 +271,12 @@ export default {
     const schedNext = scheduledPasses(d, type, u, nowSec, 3 * 3600)[0];
     const habitNext = habit.find((h) => h.sec >= nowSec - 60);
     let wait = null, sub;
-    if (liveNext !== Infinity) {
+    $("eta-label").textContent = onBoard ? "Subiste en" : "Subes en";
+    if (onBoard) {
+      const left = this.dest != null ? Math.max(0, d.offsets[this.dest] - posT) : null;
+      $("eta-value").textContent = left != null ? (left < 45 ? "llegando" : fmtEta(left)) : "en ruta";
+      sub = left != null ? `vas en el ${vehicle(r)} · hasta ${net.stops[d.stops[this.dest]].name}` : `vas en el ${vehicle(r)} · marca dónde bajas`;
+    } else if (liveNext !== Infinity) {
       wait = liveNext;
       $("eta-value").textContent = fmtEta(liveNext);
       const away = Math.max(0, Math.ceil(u - stopIndexFromT(d, d.offsets[u] - liveNext)));
@@ -285,14 +295,17 @@ export default {
 
     // Tiempo estimado de trayecto (subida -> bajada)
     const ts = $("trip-sum");
-    ts.hidden = this.dest == null;
-    if (this.dest != null) {
+    ts.hidden = false;
+    if (this.dest == null) ts.innerHTML = `<p class="jr-hint">¿Dónde bajas? Toca una parada del recorrido, o un punto del mapa y «Quiero ir aquí».</p>`;
+    else {
       const f = pollNext?.calibrated && !pollNext.atHead ? pollNext.f : 1;
-      const ride = (d.offsets[this.dest] - d.offsets[u]) * f, stops = this.dest - u;
+      const ride = (d.offsets[this.dest] - d.offsets[u]) * f, stops = this.dest - u, destId = d.stops[this.dest];
       const t = this.toPlan, walkEnd = t && !t.second && t.endWalk != null ? walkSec(t.endWalk) : 0;
-      const arrive = wait != null ? nowSec + wait + ride + walkEnd : null;
-      ts.innerHTML = `<div><span class="label">Trayecto</span><b>≈ ${Math.max(1, Math.round(ride / 60))} min</b> en el ${vehicle(r)} · ${stops} parada${stops > 1 ? "s" : ""}</div>
-        <div class="meta">${wait != null ? `+ ${Math.max(0, Math.round(wait / 60))} min de espera · llegas a <b>${esc(net.stops[d.stops[this.dest]].name)}</b> hacia las <b>${fmtClock(arrive)}</b>` : "sin servicio previsto ahora"}${walkEnd ? ` + ${walkMin(t.endWalk)} min andando` : ""}${f !== 1 ? ` · ritmo real ×${f.toFixed(2)}` : ""}</div>`;
+      const arrive = onBoard ? nowSec + Math.max(0, d.offsets[this.dest] - posT) + walkEnd : wait != null ? nowSec + wait + ride + walkEnd : null;
+      ts.innerHTML = `<div class="jr-row"><span class="tag">BAJAS</span>
+        <span class="jr-main"><b>${esc(net.stops[destId].name)}</b>
+          <span class="meta">${posteLabel(net, destId)} · ${stops} parada${stops > 1 ? "s" : ""} · ≈ ${Math.max(1, Math.round(ride / 60))} min en ${vehicle(r)}${walkEnd ? ` + ${walkMin(t.endWalk)} a pie` : ""}${f !== 1 ? ` · ritmo ×${f.toFixed(2)}` : ""}</span></span>
+        <span class="jr-arr"><b>${arrive != null ? `~${fmtClock(arrive)}` : "—"}</b><small>${walkEnd ? "en tu destino" : "llegada"}</small></span></div>`;
     }
 
     const sig = signals[0];
@@ -437,7 +450,7 @@ export default {
   renderWait() {
     const el = $("wait-box"), r = this.route, on = isWaiting(r.id, this.dirIdx, this.board), w = wait.cur;
     const lb = lastBoarded(), here = lb && lb.routeId === r.id && lb.dir === this.dir().dir && lb.stopId === this.dir().stops[this.board];
-    const key = [r.live, on, w?.push, w?.alertMin, app.social, !!trip.ride, w && !on ? w.routeId : "", here ? lb.id : ""].join("|");
+    const key = [r.live, on, w?.push, w?.alertMin, app.social, !!trip.ride, w && !on ? w.routeId : "", here ? lb.id : "", here && canUndo(lb)].join("|");
     if (el.dataset.key !== key) {
       el.dataset.key = key;
       const pushMsg = !on ? "" : { on: "Te avisaremos con una notificación aunque cambies de app.", denied: "Notificaciones bloqueadas: sólo te avisaremos con la app abierta. Actívalas en los ajustes del navegador para este sitio.",
@@ -445,8 +458,9 @@ export default {
         error: "No se pudieron activar las notificaciones.", off: "Activando notificaciones…" }[w.push] || "";
       // «He subido» → gris «Subido ✓» (viaje empezado). Otro toque = «Entrada incorrecta»: se borra y vuelve a rojo.
       const boardBtn = !app.social ? "" : here
-        ? `<button class="board done" data-w="undo" aria-pressed="true">Subido ✓<small>¿error? toca para deshacer</small></button>`
+        ? (canUndo(lb) ? `<button class="board done" data-w="undo" aria-pressed="true">Subido ✓<small>¿error? toca para deshacer</small></button>` : `<button class="board done" disabled>Subido ✓</button>`)
         : trip.ride ? "" : `<button class="board" data-w="boarded" aria-pressed="false">He subido</button>`;
+      if (here) { el.innerHTML = `<div class="wait-row">${boardBtn}<button class="ghost-btn" data-w="off">Ya he bajado</button></div>`; return; }
       el.innerHTML = !r.live ? boardBtn && `<div class="wait-row">${boardBtn}</div>` : on
         ? `<div class="wait-on"><div class="wait-head"><span class="live-dot"></span><b>Esperando</b><span class="meta">· la cuenta atrás te sigue en las demás pantallas</span></div>
             <label class="wait-alert">Avisarme cuando falten <select id="wait-alert">${ALERTS.map((m) => `<option value="${m}" ${m === w.alertMin ? "selected" : ""}>${m} min</option>`).join("")}</select></label>
@@ -467,6 +481,7 @@ export default {
       if (a === "stop") stopWait();
       if (a === "retry") retryPush();
       if (a === "boarded") await this.onBoarded();
+      if (a === "off") { finishBoarded(); if (trip.ride) { await endRide(); this.renderTop(); } toast("Viaje terminado"); }
       if (a === "undo") {
         await undoBoarded();
         if (trip.ride) { await endRide(); this.renderTop(); }
@@ -479,7 +494,7 @@ export default {
   // parada, además arranca el viaje verificado por GPS de siempre.
   async onBoarded() {
     const r = this.route, d = this.dir(), u = this.board, stopId = d.stops[u];
-    const res = await boarded({ route: r, dir: d, stopId, gps: trip.gps, waitedSince: wait.cur?.stopId === stopId ? wait.cur.since : null, first: this.firstSeen?.u === u ? this.firstSeen : null });
+    const res = await boarded({ route: r, dir: d, stopId, destStopId: this.dest != null ? d.stops[this.dest] : null, gps: trip.gps, waitedSince: wait.cur?.stopId === stopId ? wait.cur.since : null, first: this.firstSeen?.u === u ? this.firstSeen : null });
     if (trip.unlocked && trip.gps) { try { await checkIn(r, d, u); await board(r, d, this.dest); this.renderTop(); } catch { /* lejos de la parada: queda sólo la subida */ } }
     const m = res.avanzaMin;
     toast(m == null ? "Subida anotada, ¡gracias!" : m <= 1 ? "Subida anotada · Avanza acertó" : `Subida anotada · Avanza aún marcaba ${m} min`);

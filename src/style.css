@@ -520,3 +520,31 @@ body[data-view="welcome"] .wait-bar { display: none; }
 .bz-dot.none { background: transparent; }
 .bz-dot.off { border-color: #666; background: #2a2c31; }
 .pop-actions button.blue { background: #0072ce; color: #fff; }
+
+/* Inicio: accesos grandes, 2 por fila; Recientes plegable */
+.quick { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.qchip { flex-direction: row; justify-content: flex-start; gap: 10px; min-height: 60px; padding: 0 14px; font-size: 16px; font-weight: 900; border-radius: 14px; }
+.qchip span { font-size: 22px; width: 26px; text-align: center; }
+.rec-block > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 6px; padding: 4px 0; }
+.rec-block > summary::-webkit-details-marker { display: none; }
+.rec-block > summary::after { content: "▾"; margin-left: auto; font-size: 14px; color: var(--mute); transition: transform .2s; }
+.rec-block:not([open]) > summary::after { transform: rotate(-90deg); }
+/* Cabecera: X para volver al inicio; servicio dentro */
+.close-btn { font-size: 18px; }
+.route-dir .label .svc { font-size: 10px; letter-spacing: .3px; }
+/* Vista de línea: primero tu viaje (subes → bajas), luego el sentido */
+.rv { display: flex; flex-direction: column; }
+.rv > * { order: 4; }
+.rv > #api-banner, .rv > .pick-hint { order: 0; }
+.rv > .stop-part { order: 1; }
+.rv > .dir-block { order: 2; margin-bottom: 6px; }
+.no-stop .rv > .dir-block { order: 0; }
+.trip-sum { border: 0; border-top: 1px dashed var(--rule2); border-radius: 0; background: none; padding: 10px 0 4px; margin: 8px 0 0; }
+.jr-row { display: flex; align-items: center; gap: 10px; }
+.jr-row .tag { margin: 0; flex: none; }
+.jr-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.jr-main b { font-size: 16px; font-weight: 900; line-height: 1.15; }
+.jr-arr { display: flex; flex-direction: column; align-items: flex-end; flex: none; }
+.jr-arr b { font-family: var(--mono); font-size: 22px; color: var(--ink); }
+.jr-arr small { font-size: 10px; color: var(--mute); text-transform: uppercase; letter-spacing: .5px; }
+.jr-hint { margin: 0; font-size: 13px; color: var(--soft); }

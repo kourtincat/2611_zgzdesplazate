@@ -1,5 +1,5 @@
 // Indicar a dónde voy: origen (GPS, mapa o buscador) -> "Selecciona a dónde vas" -> opciones con hasta 1 transbordo.
-import { app, $, esc, go, fly, fitTo, simpleTop, locate, badge, posteLabel, arrivals, snap } from "../app.js";
+import { app, $, esc, go, back, fly, fitTo, simpleTop, locate, badge, posteLabel, arrivals, snap } from "../app.js";
 import { plan } from "../planner.js";
 import { routesNear } from "../network.js";
 import { setNetwork, setMarker, setData, fc, line, setPostes } from "../map.js";
@@ -56,7 +56,7 @@ export default {
     } else if (this.stage === "dest") {
       const near = routesNear(app.net, p.origin.p, 700);
       setNetwork(app.map, app.net, new Set(near.map((n) => n.route.id)), true);
-      fly({ center: p.origin.p, zoom: 14.2, pitch: app.flat ? 0 : 45 });
+      fly({ center: p.origin.p, zoom: 14.2, pitch: 0, bearing: 0 });
       body.innerHTML = `${chip("origin", p.origin)}
         <h3 class="step-title">Selecciona a dónde vas</h3>
         ${this.searchBox("Calle y número, lugar o parada de destino")}
@@ -95,11 +95,9 @@ export default {
     };
   },
 
-  set(which, val) {
-    app.params[which] = val;
-    this.sel = null; app.params.sel = null;
-    this.render();
-  },
+  // Cada paso (origen, destino, opción) es una entrada del historial: «atrás» vuelve al paso anterior.
+  step(patch) { go("plan", { ...app.params, ...patch }); },
+  set(which, val) { this.step({ [which]: val, sel: null }); },
 
   renderResults() {
     const p = app.params, net = app.net;
@@ -171,14 +169,14 @@ export default {
     const res = t.closest("[data-res]");
     if (res) { const r = this.results[+res.dataset.res]; return this.set(this.stage === "origin" ? "origin" : this.stage === "dest" ? "dest" : "dest", { p: r.p, label: r.title }); }
     const edit = t.closest("[data-edit]");
-    if (edit) { const k = edit.dataset.edit; app.params[k] = null; this.sel = null; return this.render(); }
+    if (edit) { const k = edit.dataset.edit; return this.step({ [k]: null, sel: null }); }
     const opt = t.closest("[data-opt]");
-    if (opt) { this.sel = +opt.dataset.opt; app.params.sel = this.sel; return this.render(); }
-    if (t.closest("[data-back-opts]")) { this.sel = null; app.params.sel = null; return this.render(); }
+    if (opt) return this.step({ sel: +opt.dataset.opt });
+    if (t.closest("[data-back-opts]")) return back();
     const live = t.closest("[data-live]");
     if (live) {
       const l = this.options[this.sel].legs[+live.dataset.live];
-      go("route", { routeId: l.route.id, dirIdx: l.dirIdx, board: l.from, dest: l.to });
+      go("route", { routeId: l.route.id, dirIdx: l.dirIdx, board: l.from, dest: l.to, to: app.params.dest });
     }
   },
   // Tocar un destino popular o una estación Bizi en el mapa = elegirlo como origen/destino.

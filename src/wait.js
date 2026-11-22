@@ -126,7 +126,7 @@ export const retryPush = () => enablePush();
 
 // ---------- He subido ----------
 // first = { min, at }: primera predicción de Avanza vista para este bus (de la espera o de la vista de línea).
-export async function boarded({ route, dir, stopId, gps, waitedSince, first }) {
+export async function boarded({ route, dir, stopId, destStopId, gps, waitedSince, first }) {
   const mine = wait.cur && wait.cur.stopId === stopId ? wait.cur : null;
   const shown = mine ? remaining() : null, pred = mine?.first || first || null;
   const r = await post("/api/boarded", {
@@ -137,15 +137,19 @@ export async function boarded({ route, dir, stopId, gps, waitedSince, first }) {
     ...(gps ? { lon: gps.p[0], lat: gps.p[1], acc: gps.acc } : {}),
   });
   if (mine) await stopWait();
-  saveBoarded({ id: r.id, routeId: route.id, dir: dir.dir, stopId, at: Date.now() });
+  saveBoarded({ id: r.id, routeId: route.id, dir: dir.dir, stopId, destStopId: destStopId ?? null, at: Date.now() });
   return r;
 }
 
 // Última subida (para poder deshacerla con un segundo toque durante 30 min).
 const KEY_B = "pw-boarded";
 export function lastBoarded() {
-  try { const b = JSON.parse(localStorage.getItem(KEY_B)); return b && Date.now() - b.at < 30 * 60000 ? b : null; } catch { return null; }
+  // Se asume que vas en el bus hasta 2 h después de subir (o hasta «Ya he bajado»); deshacer, sólo los primeros 30 min.
+  try { const b = JSON.parse(localStorage.getItem(KEY_B)); return b && Date.now() - b.at < 120 * 60000 ? b : null; } catch { return null; }
 }
+export const canUndo = (b) => !!b && Date.now() - b.at < 30 * 60000;
+export function finishBoarded() { saveBoarded(null); }
+export function setBoardedDest(destStopId) { const b = lastBoarded(); if (b) saveBoarded({ ...b, destStopId }); }
 function saveBoarded(b) { try { b ? localStorage.setItem(KEY_B, JSON.stringify(b)) : localStorage.removeItem(KEY_B); } catch {} }
 export async function undoBoarded() {
   const b = lastBoarded();

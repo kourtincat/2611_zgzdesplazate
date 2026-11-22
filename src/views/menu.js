@@ -1,7 +1,7 @@
 // Inicio: un buscador único (poste, línea o calle), accesos rápidos y tus favoritos/recientes con el próximo bus.
 // Lo más habitual al abrir la app es "quiero mi poste" o "el poste más cercano de la línea X": las dos cosas se
 // resuelven escribiendo en el buscador, sin pasar por menús.
-import { app, $, esc, go, topbar, snap, snapNow, fly, fitTo, badge, posteLabel, arrivals, myPos, locate } from "../app.js";
+import { app, $, esc, go, topbar, snap, snapNow, fly, fitTo, badge, posteLabel, arrivals, myPos, locate, pref } from "../app.js";
 import { setPostes, setNetwork } from "../map.js";
 import { nearestStop } from "../network.js";
 import { haversine } from "../geo.js";
@@ -178,8 +178,9 @@ export default {
     const fav = F.map((x) => this.card(x)).join("");
     const rec = R.map((x) => this.recentRow(x)).join("");
     $("home-saved").innerHTML = (fav ? `<div class="block-title">Favoritos</div>${fav}` : "")
-      + (rec ? `<div class="block-title rec-title">Recientes</div>${rec}` : "")
+      + (rec ? `<details class="rec-block" ${pref.get("pw-rec-open", "1") === "1" ? "open" : ""}><summary class="block-title rec-title">Recientes <span class="meta">(${R.length})</span></summary>${rec}</details>` : "")
       + (!fav ? `<p class="meta hint">Marca <b>☆</b> en un poste o en tu parada de una línea y aparecerá aquí con su próximo bus.</p>` : "");
+    $("home-saved").querySelector(".rec-block")?.addEventListener("toggle", (e) => pref.set("pw-rec-open", e.target.open ? "1" : "0"));
     const pins = F.map((x) => (x.t === "poste" ? x.id : x.board != null ? net.byId[x.routeId].dirs[x.dirIdx].stops[x.board] : null)).filter(Boolean);
     setPostes(app.map, [...new Set(pins)].map((id) => ({ id, p: net.stops[id].p, label: net.stops[id].tram ? net.stops[id].name : String(net.stops[id].code) })));
   },
