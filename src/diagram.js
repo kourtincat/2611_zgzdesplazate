@@ -17,8 +17,8 @@ export function renderStops(el, net, route, dir, { board = null, dest = null, bu
     return `<div class="row${tag ? " key" : ""}${between ? " on-trip" : ""}${!simple && i < board ? " past" : ""}${open === i ? " open" : ""}${off[i] ? " off" : ""}" data-i="${i}" style="height:${ROW}px">
       <span class="dot${tag ? " big" : ""}"></span>
       <span class="name">${esc(s.name)}${tag ? ` <em class="tag">${tag}</em>` : ""}${conns[i] ? `<span class="xchips">${conns[i]}</span>` : ""}</span>
-      <span class="poste">${s.tram ? "" : `<small>poste</small>${s.code ?? ""}`}</span>
       <span class="eta-mini">${etas[i] ?? ""}</span>
+      <span class="poste">${s.tram ? "" : `<small>poste</small>${s.code ?? ""}`}</span>
     </div>`;
   });
   // Acciones de la fila tocada: flotan sobre la lista para no mover el recorrido.

@@ -6,7 +6,7 @@ import { setNetwork, setMarker, setData, fc, line, setPostes } from "../map.js";
 import { fmtClock } from "../prediction.js";
 import { PLACES, DISTRICTS } from "../places.js";
 import { setPlaces, showLayers } from "../map.js";
-import { loadBizi, showBizi, biziState } from "../bizi.js";
+import { showBizi, biziTrip, BIZI } from "../bizi.js";
 import { haversine } from "../geo.js";
 
 const WALK = 1.2, DETOUR = 1.3;
@@ -26,15 +26,16 @@ export default {
   // Lugares que se pueden elegir con un toque (lista y mapa) mientras se elige origen o destino.
   quickPlaces(which) {
     return `<div class="block-title">${which === "origin" ? "Salir de un lugar conocido" : "Destinos populares"}</div>
-      <div class="places">${PLACES.map((x) => `<button class="place-chip" data-place="${x.id}"><span aria-hidden="true">${x.icon}</span>${esc(x.name)}</button>`).join("")}</div>
+      <div class="places">${PLACES.map((x) => `<button class="place-chip" data-place="${x.id}"><span aria-hidden="true">${x.icon}</span><span class="pc-name">${esc(x.name)}</span></button>`).join("")}</div>
       <label class="field barrio"><select id="pl-barrio" aria-label="Ir a un barrio"><option value="">${which === "origin" ? "Salir de un barrio…" : "Ir a un barrio…"}</option>
         ${DISTRICTS.map((d, i) => `<option value="${i}">${esc(d.name)}</option>`).join("")}</select></label>
-      <p class="meta">En el mapa también puedes tocar un destino (punto blanco y rojo) o una estación Bizi (azul).</p>`;
+      <p class="meta">En el mapa también puedes tocar cualquier punto o uno de estos destinos (punto blanco y rojo).</p>`;
   },
+  // Bizi no es un destino sino un medio de transporte: sus estaciones no se ofrecen para elegir origen o destino.
   showPickers(on) {
     showLayers(app.map, ["places", "place-labels"], on);
-    showBizi(on);
-    if (on) { setPlaces(app.map, PLACES); loadBizi(); }
+    showBizi(false);
+    if (on) setPlaces(app.map, PLACES);
   },
   render() {
     const p = app.params, body = $("sheet-body");
@@ -110,7 +111,7 @@ export default {
     const chips = ["origin", "dest"].map((k) => `<button class="od-chip" data-edit="${k}"><span class="od-dot ${k}">${k === "origin" ? "A" : "B"}</span><span><small>${k === "origin" ? "Desde" : "Hasta"}</small><b>${esc(p[k].label)}</b></span><span class="od-edit">cambiar</span></button>`).join("");
     if (this.sel != null && this.options[this.sel]) return this.renderDetail(chips);
     const walkOnly = dist < 1500 ? `<div class="opt walk"><b>🚶 Andando ≈ ${walkMin(dist)} min</b><span class="meta">${Math.round(dist * DETOUR)} m aprox.</span></div>` : "";
-    $("sheet-body").innerHTML = `${chips}<h3 class="step-title">Cómo llegar</h3>${walkOnly}
+    $("sheet-body").innerHTML = `${chips}<h3 class="step-title">Cómo llegar</h3>${walkOnly}<div id="pl-bizi"></div>
       ${this.options.map((o, i) => `<div class="opt" data-opt="${i}" role="button" tabindex="0">
         <div class="opt-head"><b>≈ ${Math.round(o.total / 60)} min</b><span class="meta">llegas ~${fmtClock(o.arrive)} · ${o.legs.length > 1 ? "1 transbordo" : "directo"}</span></div>
         <div class="opt-legs">🚶 ${walkMin(o.legs[0].walk)}' ${o.legs.map((l, k) => `${k ? `<span class="xfer">⇄ ${walkMin(l.walk)}'</span>` : ""}<span class="leg">${badge(l.route, "xs")}<small>${l.to - l.from} par.</small></span>`).join(" ")} 🚶 ${walkMin(o.endWalk)}'</div>
@@ -118,6 +119,28 @@ export default {
       </div>`).join("") || `<p class="meta">No encontramos una combinación con ≤ 1 transbordo y paradas a menos de 750 m. Prueba a mover el origen o el destino.</p>`}
       <p class="meta">Estimación con frecuencias del horario y tiempos entre paradas del GTFS; el primer bus se confirma con Avanza al abrir la opción.</p>`;
     if (this.options[0]) this.drawOption(this.options[0]);
+    this.loadBiziOption();
+  },
+
+  // Bizi como un medio más: andar a una estación con bicis, pedalear hasta otra con anclajes libres y andar al destino.
+  async loadBiziOption() {
+    const p = app.params, o = await biziTrip(p.origin.p, p.dest.p);
+    const box = $("pl-bizi");
+    if (!box || !o || app.view !== this || app.params !== p) return;
+    this.bizi = o;
+    const st = (s, what) => `<b>Bizi${s.num ? ` ${s.num}` : ""} · ${esc(s.name)}</b> <span class="meta">(${what})</span>`;
+    box.innerHTML = `<div class="opt bizi-opt" data-bizi role="button" tabindex="0">
+      <div class="opt-head"><b>≈ ${Math.round(o.total / 60)} min</b><span class="meta">llegas ~${fmtClock(o.arrive)} · en Bizi</span></div>
+      <div class="opt-legs">🚶 ${walkMin(o.walkA)}' <span class="leg">${badge(BIZI, "xs")}<small>${Math.round(o.ride / 60)}'</small></span> 🚶 ${walkMin(o.walkB)}'</div>
+      <ol class="itinerary bz-steps" hidden>
+        <li class="st-walk">🚶 Anda ${walkMin(o.walkA)} min hasta ${st(o.from, `${o.from.bikes} bicis`)}</li>
+        <li class="st-ride bz-ride">🚲 Pedalea ≈ ${Math.round(o.ride / 60)} min (${(o.rideM / 1000).toFixed(1)} km) hasta ${st(o.to, `${o.to.docks} anclajes libres`)}</li>
+        <li class="st-walk">🚶 Anda ${walkMin(o.walkB)} min hasta <b>${esc(p.dest.label)}</b></li></ol></div>`;
+  },
+  drawBizi(o) {
+    const p = app.params;
+    setData(app.map, "plan", fc([line([p.origin.p, o.from.p], { kind: "walk" }), line([o.from.p, o.to.p], { kind: "ride", color: "#54a097" }), line([o.to.p, p.dest.p], { kind: "walk" })]));
+    setPostes(app.map, []);
   },
 
   renderDetail(chips) {
@@ -170,6 +193,8 @@ export default {
     if (res) { const r = this.results[+res.dataset.res]; return this.set(this.stage === "origin" ? "origin" : this.stage === "dest" ? "dest" : "dest", { p: r.p, label: r.title }); }
     const edit = t.closest("[data-edit]");
     if (edit) { const k = edit.dataset.edit; return this.step({ [k]: null, sel: null }); }
+    const bz = t.closest("[data-bizi]");
+    if (bz && this.bizi) { const s = bz.querySelector(".bz-steps"); s.hidden = !s.hidden; bz.classList.toggle("on", !s.hidden); if (!s.hidden) this.drawBizi(this.bizi); else if (this.options[0]) this.drawOption(this.options[0]); return; }
     const opt = t.closest("[data-opt]");
     if (opt) return this.step({ sel: +opt.dataset.opt });
     if (t.closest("[data-back-opts]")) return back();
@@ -179,11 +204,10 @@ export default {
       go("route", { routeId: l.route.id, dirIdx: l.dirIdx, board: l.from, dest: l.to, to: app.params.dest });
     }
   },
-  // Tocar un destino popular o una estación Bizi en el mapa = elegirlo como origen/destino.
+  // Tocar un destino popular en el mapa = elegirlo como origen/destino.
   onFeature(f) {
     if (this.stage === "results") return false;
     if (f.layer.id === "places") { const x = PLACES.find((y) => y.id === f.properties.id); if (x) this.set(this.stage, { p: x.p, label: x.name }); return !!x; }
-    if (f.layer.id === "bizi") { const s = biziState.stations.find((y) => String(y.id) === String(f.properties.id)); if (s) this.set(this.stage, { p: s.p, label: `Bizi · ${s.name}` }); return !!s; }
     return false;
   },
   onMapClick(p) {

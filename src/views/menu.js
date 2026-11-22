@@ -36,6 +36,7 @@ export default {
           <button id="home-clear" class="search-clear" aria-label="Borrar búsqueda" hidden>✕</button>
         </div>
         <div class="quick" id="home-quick">
+          <button class="qchip wide" data-act="poste"><span aria-hidden="true">#</span>Nº de poste<small>el número de la marquesina</small></button>
           <button class="qchip" data-act="near"><span aria-hidden="true">◎</span>Cerca de mí</button>
           <button class="qchip" data-act="lines"><span aria-hidden="true">≡</span>Líneas</button>
           <button class="qchip" data-act="plan"><span aria-hidden="true">⇢</span>Cómo llegar</button>
@@ -66,6 +67,14 @@ export default {
   center() { snap("half"); fitTo(app.net.core, { maxZoom: 13, duration: 1200 }); },
 
   async onQuick(act) {
+    // Nº de poste: el buscador con el teclado numérico (vuelve al normal al salir).
+    if (act === "poste") {
+      const input = $("home-q");
+      input.setAttribute("inputmode", "numeric");
+      input.placeholder = "Escribe el nº de poste";
+      input.addEventListener("blur", () => { input.removeAttribute("inputmode"); input.placeholder = "Nº de poste, línea o calle"; }, { once: true });
+      return input.focus();
+    }
     if (act === "lines") return go("explore", {});
     if (act === "plan") return go("plan", {});
     if (act === "bizi") return go("bizi", {});
@@ -177,10 +186,11 @@ export default {
     this.items = new Map([...F, ...R].map((x) => [keyOf(x), x]));
     const fav = F.map((x) => this.card(x)).join("");
     const rec = R.map((x) => this.recentRow(x)).join("");
+    // Recientes, al final y plegado salvo que el usuario lo haya abierto.
     $("home-saved").innerHTML = (fav ? `<div class="block-title">Favoritos</div>${fav}` : "")
-      + (rec ? `<details class="rec-block" ${pref.get("pw-rec-open", "1") === "1" ? "open" : ""}><summary class="block-title rec-title">Recientes <span class="meta">(${R.length})</span></summary>${rec}</details>` : "")
-      + (!fav ? `<p class="meta hint">Marca <b>☆</b> en un poste o en tu parada de una línea y aparecerá aquí con su próximo bus.</p>` : "");
-    $("home-saved").querySelector(".rec-block")?.addEventListener("toggle", (e) => pref.set("pw-rec-open", e.target.open ? "1" : "0"));
+      + (!fav ? `<p class="meta hint">Marca <b>☆</b> en un poste o en tu parada de una línea y aparecerá aquí con su próximo bus.</p>` : "")
+      + (rec ? `<details class="rec-block" ${pref.get("pw-rec-open2", "0") === "1" ? "open" : ""}><summary class="block-title rec-title">Recientes <span class="meta">(${R.length})</span></summary>${rec}</details>` : "");
+    $("home-saved").querySelector(".rec-block")?.addEventListener("toggle", (e) => pref.set("pw-rec-open2", e.target.open ? "1" : "0"));
     const pins = F.map((x) => (x.t === "poste" ? x.id : x.board != null ? net.byId[x.routeId].dirs[x.dirIdx].stops[x.board] : null)).filter(Boolean);
     setPostes(app.map, [...new Set(pins)].map((id) => ({ id, p: net.stops[id].p, label: net.stops[id].tram ? net.stops[id].name : String(net.stops[id].code) })));
   },

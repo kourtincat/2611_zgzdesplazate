@@ -1,7 +1,7 @@
 // Voy en Bizi: estaciones cerca de mí, de una dirección escrita o de un punto tocado en el mapa,
 // con bicis y anclajes libres en vivo (se refresca cada 60 s).
-import { app, $, esc, simpleTop, locate, myPos, syncUrl, fly, setPick } from "../app.js";
-import { setMarker } from "../map.js";
+import { app, $, esc, simpleTop, locate, myPos, syncUrl, fly, fitTo, setPick } from "../app.js";
+import { setMarker, setBizi } from "../map.js";
 import { loadBizi, showBizi, biziClass, biziPopup, biziLegend } from "../bizi.js";
 
 const fmtD = (m) => (m < 1000 ? `${Math.round(m / 10) * 10} m` : `${(m / 1000).toFixed(1)} km`);
@@ -13,6 +13,7 @@ export default {
   enter() {
     simpleTop("Bizi", "Voy en bici");
     showBizi(true);
+    this.framed = false;
     $("sheet-body").innerHTML = `
       <div class="bz-tools">
         <button class="board alt" id="bz-gps">◎ Cerca de mí</button>
@@ -42,12 +43,19 @@ export default {
     const list = await loadBizi(force), p = app.params.point;
     if (app.view !== this) return;
     if (!list.length) { $("bz-list").innerHTML = `<p class="meta center">Cargando estaciones Bizi…</p>`; clearTimeout(this.retry); this.retry = setTimeout(() => this.render(true), 5000); return; }
-    if (!p) { $("bz-list").innerHTML = ""; $("bz-foot").textContent = `${list.length} estaciones · datos del Ayuntamiento de Zaragoza`; return; }
-    this.near = list.map((s) => ({ ...s, d: dist(s.p, p) })).sort((a, b) => a.d - b.d).slice(0, 8);
-    $("bz-list").innerHTML = `<div class="block-title">Más cerca ${this.label === "Tu ubicación" ? "de ti" : "del punto"}</div>` + this.near.map((s, i) => `
-      <button class="bizi-row" data-bz="${i}"><span class="bz-ico ${biziClass(s)}">${s.on ? s.bikes : "×"}</span>
-        <span class="rr-main"><b>${esc(s.name)}</b><span class="meta">${fmtD(s.d)} · ${s.on ? `<b>${s.bikes}</b> bicis · <b>${s.docks}</b> anclajes libres` : "fuera de servicio"}</span></span></button>`).join("");
-    $("bz-foot").textContent = `Bizi Zaragoza en vivo${list.length ? "" : " (sin datos ahora)"} · se actualiza cada minuto`;
+    // Todas las estaciones en el mapa siempre (al volver a esta vista la capa puede estar vacía).
+    setBizi(app.map, list); showBizi(true);
+    if (!p && !this.framed) { this.framed = true; const lo = list.map((s) => s.p[0]), la = list.map((s) => s.p[1]); fitTo([[Math.min(...lo), Math.min(...la)], [Math.max(...lo), Math.max(...la)]], { duration: 900 }); }
+    const row = (s, i, d) => `<button class="bizi-row" data-bz="${i}"><span class="bz-ico ${biziClass(s)}">${s.on ? s.bikes : "×"}</span>
+        <span class="rr-main"><b>${s.num ? `${s.num} · ` : ""}${esc(s.name)}</b><span class="meta">${d != null ? `${fmtD(d)} · ` : ""}${s.on ? `<b>${s.bikes}</b> bicis · <b>${s.docks}</b> anclajes libres` : "fuera de servicio"}</span></span></button>`;
+    const near = p ? list.map((s) => ({ ...s, d: dist(s.p, p) })).sort((a, b) => a.d - b.d).slice(0, 8) : [];
+    const all = [...list].sort((a, b) => (a.num ?? 1e9) - (b.num ?? 1e9) || a.name.localeCompare(b.name));
+    this.near = [...near, ...all];
+    const free = list.filter((s) => s.on).reduce((a, s) => a + (s.bikes || 0), 0);
+    $("bz-list").innerHTML = (near.length ? `<div class="block-title">Más cerca ${this.label === "Tu ubicación" ? "de ti" : "del punto"}</div>${near.map((s, i) => row(s, i, s.d)).join("")}` : "")
+      + `<div class="block-title">Todas las estaciones <span class="meta">(${list.length} · ${free} bicis libres ahora)</span></div>`
+      + `<div class="bz-all">${all.map((s, i) => row(s, near.length + i)).join("")}</div>`;
+    $("bz-foot").textContent = `Bizi Zaragoza en vivo · datos del Ayuntamiento de Zaragoza · se actualiza cada minuto`;
   },
   bindSearch() {
     const input = $("bz-q"); let t;

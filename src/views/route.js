@@ -11,6 +11,7 @@ import { fetchLive, fetchHabits, passesAt, tentative, mergeHabits, liveSignals }
 import { trip, startGps, checkIn, board, endRide, cancelCheckin } from "../trip.js";
 import { haversine } from "../geo.js";
 import { connChips } from "./explore.js";
+import { PLACES, DISTRICTS } from "../places.js";
 import { lineTimes } from "./find.js";
 import { isFav, toggleFav } from "../saved.js";
 import { wait, isWaiting, startWait, stopWait, setAlert, boarded, retryPush, lastBoarded, undoBoarded, canUndo, finishBoarded, setBoardedDest } from "../wait.js";
@@ -36,6 +37,8 @@ export default {
     this.snap = keepView ? null : b == null ? "low" : "half";
     this.renderShell();
     this.change(keepView ? "keep" : b == null ? "line" : "board");
+    // Vuelta atrás a la exploración: la lista donde se dejó.
+    if (b == null && app.params.listScroll) { const y = app.params.listScroll; requestAnimationFrame(() => ($("sheet-body").scrollTop = y)); }
   },
   dir() { return this.route.dirs[this.dirIdx]; },
   geom() { return app.flat ? this.dir().flat : this.dir().real; },
@@ -45,23 +48,29 @@ export default {
     $("sheet-body").innerHTML = `<div class="rv">
       ${r.dirs.length > 1 ? `<div class="dir-block"><div class="label seg-title">Dirección</div>
       <div class="dir-seg">${r.dirs.map((d, i) => { const l = dirLabel(app.net, r, d); return `<button data-dir="${i}"><small>${esc(l.from)}</small><b>→ ${esc(l.to)}</b></button>`; }).join("")}</div></div>` : ""}
+      <div id="alerts" class="alerts-box" hidden></div>
       <div id="api-banner" class="banner" hidden>Avanza no responde. Mostramos la previsión por hábito (lo observado otros días) y el horario.</div>
       <p id="pick-hint" class="pick-hint">Toca una parada en el recorrido o en el mapa para ver cuándo llega el ${vehicle(r)} y marcar dónde subes.</p>
       <div class="stop-part">
       <div id="eta-card">
-        <div class="eta-stop"><span class="label" id="eta-label">Subes en</span><strong id="stop-name">—</strong><span id="stop-meta" class="meta"></span>
-          <button class="star-line" id="line-fav" aria-pressed="false">☆ Guardar en favoritos</button></div>
-        <div class="eta-big"><span id="eta-value">—</span><span id="eta-sub" class="meta"></span></div>
+        <button class="jr-row jr-tap" data-locate="board" aria-label="Ver en el mapa dónde subes"><span class="tag" id="eta-label">DÓNDE SUBES</span>
+          <span class="jr-main"><b id="stop-name">—</b><span id="stop-meta" class="meta"></span></span></button>
+        <div class="eta-big"><button class="fav-star" id="line-fav" aria-pressed="false" aria-label="Guardar en favoritos">☆</button>
+          <span id="eta-value">—</span><span id="eta-sub" class="meta"></span></div>
       </div>
       <div id="trip-sum" class="trip-sum" hidden></div>
+      <div id="to-search" class="to-search" hidden>
+        <div class="search"><span class="search-ico" aria-hidden="true">⌕</span>
+          <input id="to-q" type="search" enterkeyhint="search" autocomplete="off" spellcheck="false" placeholder="¿A dónde vas? Calle, lugar o parada" aria-label="Buscar a dónde vas"></div>
+        <div id="to-res"></div></div>
       <div id="wait-box" class="wait-box"></div>
       <div id="to-box" class="to-box" hidden></div>
       <div class="others"><div class="block-title">Otras líneas en este poste</div><div id="others" class="poste-card flat"></div></div>
       <p id="signal-note" class="note" hidden></p>
       </div>
       <div class="actions-row">
-        <button id="refresh-btn" class="pill cool stop-only" data-cool="10" ${r.live ? "" : "hidden"}>↻ Actualizar poste</button>
-        <button id="scan-btn" class="pill cool" data-cool="30" ${r.live ? "" : "hidden"}>Revisar línea</button>
+        <button id="refresh-btn" class="pill cool stop-only" data-cool="10" ${r.live ? "" : "hidden"} aria-label="Actualizar tiempos del poste">↻ Poste</button>
+        <button id="scan-btn" class="pill cool" data-cool="30" ${r.live ? "" : "hidden"} aria-label="Actualizar dónde van los buses de la línea">↻ Línea</button>
         <span id="scan-meta" class="meta"></span>
       </div>
       <div id="extra" class="extra"></div>
@@ -83,8 +92,30 @@ export default {
     $("extra").onclick = (e) => this.onExtraClick(e);
     $("wait-box").onclick = (e) => this.onWaitClick(e);
     $("to-box").onclick = (e) => this.onToClick(e);
+    this.bindToSearch();
     $("wait-box").onchange = (e) => { if (e.target.id === "wait-alert") setAlert(+e.target.value); };
     $("line-fav").onclick = () => { toggleFav(this.favItem()); this.paintFav(); };
+    // Tocar «Dónde subes» / «Dónde bajas» lleva el mapa a esa parada.
+    $("sheet-body").querySelector(".stop-part").addEventListener("click", (e) => {
+      const t = e.target.closest("[data-locate]"); if (!t) return;
+      const i = t.dataset.locate === "board" ? this.board : this.dest; if (i == null) return;
+      fly({ center: app.net.stops[this.dir().stops[i]].p, zoom: 16.5, pitch: 0, bearing: 0, duration: 900 });
+    });
+    this.loadAlerts();
+  },
+  // Alteraciones del servicio publicadas por Avanza para esta línea (cortes, desvíos, paradas suprimidas).
+  async loadAlerts() {
+    const r = this.route, box = $("alerts");
+    if (r.tram || !box) return;
+    try {
+      const res = await (await fetch(`/api/alerts?linea=${encodeURIComponent(r.short)}`)).json();
+      if (app.view !== this || this.route !== r || !res.items?.length) return;
+      const day = (t) => new Date(t).toLocaleDateString("es-ES", { day: "numeric", month: "short" });
+      box.innerHTML = `<details class="alerts"><summary><span class="al-ico" aria-hidden="true">⚠</span><b>${res.items.length === 1 ? "Alteración del servicio" : `${res.items.length} alteraciones del servicio`}</b><span class="meta">según Avanza</span></summary>
+        ${res.items.map((x) => `<div class="al-item"><b>${esc(x.title)}</b><span class="meta">Publicado el ${day(x.date)}${x.until ? ` · hasta el ${day(x.until)}` : ""}</span>
+          <p>${esc(x.text)}</p><a href="${esc(x.url)}" target="_blank" rel="noopener">Ver el aviso y el mapa del desvío en Avanza ↗</a></div>`).join("")}</details>`;
+      box.hidden = false;
+    } catch {}
   },
 
   // Cabecera: siempre a la vista el nombre de la línea y el sentido elegido.
@@ -143,7 +174,8 @@ export default {
   paintFav() {
     const on = isFav(this.favItem()), b = $("line-fav");
     b.classList.toggle("on", on); b.setAttribute("aria-pressed", on);
-    b.textContent = on ? "★ En favoritos" : "☆ Guardar en favoritos";
+    b.textContent = on ? "★" : "☆";
+    b.setAttribute("aria-label", on ? "Quitar de favoritos" : "Guardar en favoritos");
   },
   center() {
     if (this.board == null) return this.fitLine();
@@ -158,6 +190,14 @@ export default {
 
   setBoard(i) {
     if (trip.ride) return toast("Tienes un viaje en curso");
+    // Desde la exploración de la línea: nueva entrada en el historial (atrás vuelve a la lista donde estaba)
+    // y el panel sube arriba para ver el poste y completar el viaje.
+    const fromExplore = this.board == null;
+    if (fromExplore) {
+      app.params.listScroll = $("sheet-body").scrollTop; syncUrl();
+      history.pushState({ ...history.state, n: (history.state?.n || 0) + 1 }, "", location.href);
+      delete app.params.listScroll;
+    }
     this.board = i;
     if (this.dest != null && this.dest <= i) this.dest = null;
     this.open = null;
@@ -167,6 +207,7 @@ export default {
     this.redraw();
     this.poll_ = null; this.habits = [];
     this.load(false);
+    if (fromExplore) { $("sheet-body").scrollTo({ top: 0, behavior: "smooth" }); if (innerWidth < 900) snap("half"); this.center(); }
   },
   setDest(i) {
     this.dest = i; this.open = null;
@@ -271,7 +312,7 @@ export default {
     const schedNext = scheduledPasses(d, type, u, nowSec, 3 * 3600)[0];
     const habitNext = habit.find((h) => h.sec >= nowSec - 60);
     let wait = null, sub;
-    $("eta-label").textContent = onBoard ? "Subiste en" : "Subes en";
+    $("eta-label").textContent = onBoard ? "SUBISTE EN" : "DÓNDE SUBES";
     if (onBoard) {
       const left = this.dest != null ? Math.max(0, d.offsets[this.dest] - posT) : null;
       $("eta-value").textContent = left != null ? (left < 45 ? "llegando" : fmtEta(left)) : "en ruta";
@@ -281,6 +322,9 @@ export default {
       $("eta-value").textContent = fmtEta(liveNext);
       const away = Math.max(0, Math.ceil(u - stopIndexFromT(d, d.offsets[u] - liveNext)));
       sub = `${pollNext?.atHead ? "aún en cabecera" : away ? `a ${away} parada${away > 1 ? "s" : ""}` : "en tu parada"} · Avanza${pollNext ? `: ${pollNext.raw === 0 ? "en parada" : pollNext.raw + " min"}` : " (revisión)"}`;
+      // Lo observado otros días para lo que anuncia Avanza ahora en este poste («dice 10, suele ser ~7»).
+      const adj = this.poll_?.U?.rows?.find((x) => x.line === r.short.toUpperCase() && x.min === pollNext?.raw)?.adj;
+      if (adj && Math.abs(adj.real - pollNext.raw) >= 2) sub += ` · suele ser ~${adj.real} min (media de ${adj.n} pasos)`;
     } else if (apiDown && habitNext) {
       wait = habitNext.sec - nowSec;
       $("eta-value").textContent = fmtEta(wait);
@@ -296,13 +340,15 @@ export default {
     // Tiempo estimado de trayecto (subida -> bajada)
     const ts = $("trip-sum");
     ts.hidden = false;
-    if (this.dest == null) ts.innerHTML = `<p class="jr-hint">¿Dónde bajas? Toca una parada del recorrido, o un punto del mapa y «Quiero ir aquí».</p>`;
+    // Sin destino: buscador «¿A dónde vas?» (caja aparte del resumen, que se repinta, para no perder lo escrito).
+    $("to-search").hidden = this.dest != null || !!this.to || !this.canPickGo();
+    if (this.dest == null) ts.innerHTML = `<p class="jr-hint">¿Dónde bajas? Escribe a dónde vas, toca una parada del recorrido o un punto del mapa y «Quiero ir aquí».</p>`;
     else {
       const f = pollNext?.calibrated && !pollNext.atHead ? pollNext.f : 1;
       const ride = (d.offsets[this.dest] - d.offsets[u]) * f, stops = this.dest - u, destId = d.stops[this.dest];
       const t = this.toPlan, walkEnd = t && !t.second && t.endWalk != null ? walkSec(t.endWalk) : 0;
       const arrive = onBoard ? nowSec + Math.max(0, d.offsets[this.dest] - posT) + walkEnd : wait != null ? nowSec + wait + ride + walkEnd : null;
-      ts.innerHTML = `<div class="jr-row"><span class="tag">BAJAS</span>
+      ts.innerHTML = `<div class="jr-row jr-tap" data-locate="dest" role="button" tabindex="0" aria-label="Ver en el mapa dónde bajas"><span class="tag">DÓNDE BAJAS</span>
         <span class="jr-main"><b>${esc(net.stops[destId].name)}</b>
           <span class="meta">${posteLabel(net, destId)} · ${stops} parada${stops > 1 ? "s" : ""} · ≈ ${Math.max(1, Math.round(ride / 60))} min en ${vehicle(r)}${walkEnd ? ` + ${walkMin(t.endWalk)} a pie` : ""}${f !== 1 ? ` · ritmo ×${f.toFixed(2)}` : ""}</span></span>
         <span class="jr-arr"><b>${arrive != null ? `~${fmtClock(arrive)}` : "—"}</b><small>${walkEnd ? "en tu destino" : "llegada"}</small></span></div>`;
@@ -432,6 +478,40 @@ export default {
         <button class="link-btn" data-to="clear">Quitar</button></div>
       <p class="to-how">${walkBetter ? `<b>Te compensa ir andando: ≈ ${walkMin(t.direct)} min</b> (${Math.round(t.direct * 1.3 / 10) * 10} m). ` : ""}${how}${!walkBetter && t.direct < 1200 ? ` · o andando ≈ ${walkMin(t.direct)} min` : ""}</p>
       ${alts.length ? `<div class="block-title">Alternativas desde aquí</div>${alts.map(altRow).join("")}` : ""}`;
+  },
+  // Buscador de destino: paradas de esta línea por delante de la tuya, lugares populares, barrios y calles (OSM).
+  bindToSearch() {
+    const input = $("to-q"), box = $("to-res"); let t;
+    const norm = (x) => String(x).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+    const paint = (items) => { this.toItems = items; box.innerHTML = items.map((x, i) => `<button class="res-item" data-ti="${i}"><b>${esc(x.title)}</b><span class="meta">${esc(x.sub)}</span></button>`).join(""); };
+    input.oninput = () => {
+      clearTimeout(t);
+      const q = input.value.trim(), n = norm(q);
+      if (q.length < 2) { box.innerHTML = ""; return; }
+      const net = app.net, d = this.dir(), local = [];
+      for (let j = (this.board ?? 0) + 1; j < d.stops.length && local.length < 3; j++) {
+        const s = net.stops[d.stops[j]];
+        if (norm(s.name).includes(n) || String(s.code) === q) local.push({ title: s.name, sub: `${posteLabel(net, d.stops[j])} · en esta línea, ${j - this.board} parada${j - this.board > 1 ? "s" : ""}`, stop: j });
+      }
+      for (const pl of [...PLACES, ...DISTRICTS]) if (local.length < 6 && norm(pl.name).includes(n)) local.push({ title: pl.name, sub: pl.icon ? "Destino popular" : "Barrio", p: pl.p });
+      paint(local);
+      if (q.length < 3) return;
+      t = setTimeout(async () => {
+        try {
+          const geo = (await (await fetch(`/api/geocode?q=${encodeURIComponent(q)}`)).json()).slice(0, 5);
+          if (input.value.trim() === q) paint([...local, ...geo.map((g) => ({ title: g.title, sub: g.sub || "Calle o lugar", p: g.p }))]);
+        } catch {}
+      }, 350);
+    };
+    input.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); box.querySelector("[data-ti]")?.click(); } };
+    box.onclick = (e) => {
+      const b = e.target.closest("[data-ti]"); if (!b) return;
+      const x = this.toItems[+b.dataset.ti];
+      input.value = ""; box.innerHTML = ""; input.blur();
+      if (x.stop != null) return this.setDest(x.stop);
+      this.pickGo({ p: x.p });
+      if (this.to) { this.to.label = x.title; Object.assign(app.params, { to: this.to }); syncUrl(); this.redraw(); }
+    };
   },
   onToClick(e) {
     if (e.target.closest("[data-to=clear]")) {

@@ -13,9 +13,13 @@ export default {
     $("sheet-body").innerHTML = `<div class="info">
       <details ${open("para-que")} data-k="para-que"><summary>Para qué sirve</summary>
         <p>Una web para moverte por Zaragoza en bus, tranvía y Bizi sin rodeos: tu poste, el bus que viene y cuándo llega <b>de verdad</b>.</p>
-        <p>Los tiempos de Avanza no siempre coinciden con la realidad. Cuando pulsas <b>He subido</b>, se guarda lo que marcaba Avanza en ese momento.
-        Con muchas subidas se ve en qué paradas y a qué horas acierta o se equivoca, y la previsión mejora para todos.</p>
-        <p class="meta">Proyecto ciudadano y no oficial: no tiene relación con Avanza ni con el Ayuntamiento.</p></details>
+        <p>Los tiempos que muestran las marquesinas no suelen ser los correctos. Además, no hay una herramienta coherente que reúna
+        todas las formas de moverse por la ciudad (bus, tranvía, Bizi y a pie) en una única app.</p>
+        <p><b>He subido</b> sirve para construir entre todos un mapa urbano del servicio real. Cuando avisas de que has subido, se guarda de forma anónima
+        dónde, a qué hora y qué tiempo anunciaba Avanza en ese momento. Con las subidas de muchos usuarios se ve en qué paradas y a qué horas
+        se acierta o se falla. Así se pueden corregir los tiempos de espera y conocer la cadencia real de cada línea, y la previsión mejora para todos.</p>
+        <p class="meta">Proyecto no oficial: no tiene relación con Avanza ni con el Ayuntamiento. Se realiza como parte de un ejercicio de investigación
+        y mejora de productos relacionados con la movilidad urbana.</p></details>
 
       <details ${open("privacidad")} data-k="privacidad"><summary>Privacidad</summary>
         <p><b>No hay cuentas, ni cookies, ni publicidad, ni analíticas de terceros.</b> No guardamos tu nombre, tu correo, tu IP ni tu recorrido.</p>
@@ -51,7 +55,8 @@ export default {
         <a href="https://nap.transportes.gob.es/licencia-datos" target="_blank" rel="noopener">licencia</a>. Powered by MITRAMS —
         <a href="https://www.transportes.gob.es/" target="_blank" rel="noopener">Ministerio de Transportes y Movilidad Sostenible</a>.</p>
         <p>Tiempos en vivo: webs públicas de Avanza Zaragoza. Bizi: datos abiertos del Ayuntamiento de Zaragoza.</p>
-        <p>Mapa: © OpenStreetMap contributors, OpenMapTiles, OpenFreeMap. Buscador: Photon (komoot).</p></details>
+        <p>Mapa: © OpenStreetMap contributors, OpenMapTiles, OpenFreeMap. Buscador: Photon (komoot).</p>
+        <p class="operated">Operated by <a href="https://github.com/kourtincat" target="_blank" rel="noopener">kourtin</a></p></details>
     </div>`;
     $("sheet-body").onclick = (e) => this.onClick(e);
     for (const d of document.querySelectorAll(".info details")) d.addEventListener("toggle", () => { if (d.open) { app.params.section = d.dataset.k; history.replaceState(history.state, "", `/info/${d.dataset.k}`); } });

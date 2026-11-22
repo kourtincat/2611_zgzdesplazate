@@ -51,8 +51,17 @@ function enter(name, params, mode = "push") {
   // Primero el Localizador a su altura: la cámara de la vista (fly/fitTo) se calcula con la zona de mapa visible.
   if (app.view.snap) snap(app.view.snap);
   app.view.enter(params);
+  document.title = pageTitle(name, app.params);
   if (app.view.snap && app.view.snap !== current) snap(app.view.snap);
   record(name, app.params);
+}
+
+// Título de la pestaña (y del historial) según la pantalla.
+function pageTitle(name, p) {
+  const net = app.net, T = "ZGZ Desplázate";
+  if (name === "poste" && net.stops[p.id]) { const s = net.stops[p.id]; return `${s.code ? `Poste ${s.code} · ` : ""}${s.name} | ${T}`; }
+  if (name === "route" && net.byId[p.routeId]) { const r = net.byId[p.routeId]; return `${r.tram ? "Tranvía" : `Línea ${r.short}`} → ${r.dirs[p.dirIdx || 0].headsign} | ${T}`; }
+  return { explore: `Líneas | ${T}`, plan: `Cómo llegar | ${T}`, bizi: `Bizi | ${T}`, find: `Cerca de mí | ${T}`, info: `Información | ${T}` }[name] || T;
 }
 
 // Las vistas cambian app.params sobre la marcha (sentido, parada elegida…): esto actualiza la URL sin apilar.
@@ -252,15 +261,21 @@ export function toggleSheet() {
 export function setPick(p, label = null) {
   app.pick = p ? { p, label } : null;
   setMarker(app.map, "pick", p, { className: "pin" });
-  const b = $("start-here"), dest = !!(p && app.view?.pickGo && app.view.canPickGo?.() !== false);
-  b.hidden = !p;
-  b.textContent = dest ? "Quiero ir aquí →" : "Empezar aquí →";
-  b.classList.toggle("dest", dest);
+  // Dos botones: «Empezar aquí» (blanco, origen) e «Ir aquí» (amarillo, destino). Mirando un poste o tu parada
+  // de una línea sólo tiene sentido el destino: «Quiero ir aquí».
+  const ctx = !!(p && app.view?.pickGo && app.view.canPickGo?.() !== false);
+  $("pick-bar").hidden = !p;
+  $("start-here").hidden = ctx;
+  $("go-here").textContent = ctx ? "Quiero ir aquí →" : "Ir aquí →";
 }
-export function usePick() {
+export function usePick(as = "origin") {
   const k = app.pick; if (!k) return;
   if (app.view?.pickGo && app.view.canPickGo?.() !== false) { setPick(null); return app.view.pickGo(k); }
-  go("plan", { origin: { p: k.p, label: k.label || "Punto elegido" } });
+  const pt = { p: k.p, label: k.label && k.label !== "Punto elegido" ? k.label : placeLabel(app.net, k.p) };
+  if (as === "origin") return go("plan", { origin: pt });
+  // Ir aquí: desde tu ubicación si la tenemos (resultados directos); si no, el plan pide el origen.
+  const me = myPos();
+  go("plan", me ? { origin: { p: me, label: "Mi ubicación" }, dest: pt } : { dest: pt });
 }
 // Nombre legible de un punto: la parada más cercana.
 export function placeLabel(net, p) {

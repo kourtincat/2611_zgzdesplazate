@@ -15,7 +15,12 @@ export function lineTimes(net, stopId, rows) {
     const d = route.dirs[dirIdx];
     const live = (rows || []).filter((r) => r.line === route.short.toUpperCase()).map((r) => r.min).filter((m) => m !== null).sort((a, b) => a - b);
     let t;
-    if (live.length) t = live.slice(0, 2).map((m) => `<b class="live">${m === 0 ? "YA" : m + "'"}</b>`).join(" · ");
+    if (live.length) {
+      t = live.slice(0, 2).map((m) => `<b class="live">${m === 0 ? "YA" : m + "'"}</b>`).join(" · ");
+      // Puntualidad observada: si de media llega ≥ 2 min distinto de lo que dice Avanza, se indica.
+      const a = (rows || []).find((r) => r.line === route.short.toUpperCase() && r.min === live[0])?.adj;
+      if (a && Math.abs(a.real - live[0]) >= 2) t += ` <small class="adj" title="Media de ${a.n} pasos observados (${a.scope})">real ~${a.real}'</small>`;
+    }
     else {
       const next = scheduledPasses(d, type, idx, now, 2 * 3600).slice(0, 2);
       t = next.length ? `<span class="sched">hor. ${next.map(fmtClock).join(" · ")}</span>` : `<span class="sched">sin servicio</span>`;

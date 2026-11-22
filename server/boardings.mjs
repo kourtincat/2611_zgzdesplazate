@@ -52,7 +52,7 @@ export async function recordBoarding(b) {
   fs.mkdirSync(path.dirname(FILE), { recursive: true });
   fs.appendFileSync(FILE, JSON.stringify(rec) + "\n");
   if (client) lastByClient.set(client, now);
-  return { ok: true, id: rec.id, avanzaMin: avanza?.[0] ?? null, verified };
+  return { ok: true, id: rec.id, avanzaMin: avanza?.[0] ?? null, verified, pred: rec.pred, code: rec.code, line: rec.line };
 }
 
 // «Entrada incorrecta»: el usuario se equivocó al pulsar. Se borra la subida (sólo en los 30 min siguientes).

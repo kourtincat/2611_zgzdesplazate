@@ -13,15 +13,17 @@
 //   GET  /api/boardings?code=262[&line=35]   -> resumen de subidas en un poste (por línea si no se indica)
 //   GET  /api/activity?days=30               -> mapa de actividad: subidas por poste vs lo que marcaba Avanza
 //   GET  /api/bizi                           -> estaciones Bizi con bicis y anclajes libres (caché 60 s)
+//   GET  /api/alerts?linea=35                -> alteraciones del servicio de Avanza (RSS, caché 15 min)
 import fs from "node:fs";
 import path from "node:path";
 import { poste, scanLine, healthStatus, posteStatus } from "./avanza.mjs";
-import { startRecorder, watch, habits } from "./recorder.mjs";
+import { startRecorder, watch, habits, punctualityFor, learnBoarding } from "./recorder.mjs";
 import { initTrips, checkin, board, progress, end, liveTrackers, loadReports } from "./trips.mjs";
 import { vapidPublicKey, addWait, updateWait, removeWait } from "./push.mjs";
 import { initBoardings, recordBoarding, undoBoarding, boardingStats, activity, posteActivity } from "./boardings.mjs";
 import { addFeedback, listFeedback } from "./feedback.mjs";
 import { bizi } from "./bizi.mjs";
+import { alerts } from "./alerts.mjs";
 
 let started = false;
 // Arranca red, viajes y grabador. En dev se llama en la primera petición /api; en producción, al arrancar (server/index.mjs).
@@ -33,6 +35,9 @@ export function boot() {
   initBoardings(net);
   // Bizi precargado y al día (1 petición/min al Ayuntamiento): su API a veces tarda, así nadie espera.
   bizi(); setInterval(bizi, 60000).unref?.();
+  // Alteraciones de Avanza precargadas (su web puede tardar): RSS cada 15 min.
+  const al = () => alerts().catch(() => {});
+  al(); setInterval(al, 15 * 60e3).unref?.();
   startRecorder(net);
 }
 
@@ -71,7 +76,10 @@ export async function handleApi(req, res, next) {
       const p = parseInt(q("poste"));
       if (!p) return json(res, 400, { error: "poste requerido" });
       watch(p);
-      return json(res, 200, { ...(await poste(p)), health: healthStatus(), posteFails: posteStatus(p).fails });
+      const r = await poste(p);
+      // «Avanza dice 10 min, pero por lo visto otros días suele estar en ~7»: corrección por fila si hay datos.
+      const rows = (r.rows || []).map((x) => (x.min != null ? { ...x, adj: punctualityFor(x.line, p, x.min) } : x));
+      return json(res, 200, { ...r, rows, health: healthStatus(), posteFails: posteStatus(p).fails });
     }
     if (url.pathname === "/api/scan") {
       const postes = (q("postes") || "").split(",").map(Number).filter(Boolean);
@@ -100,6 +108,7 @@ export async function handleApi(req, res, next) {
     if (url.pathname === "/api/boardings") return json(res, 200, q("line") ? boardingStats(q("code"), q("line")) : posteActivity(q("code")));
     if (url.pathname === "/api/activity") return json(res, 200, activity(Math.min(90, Math.max(1, +q("days") || 30))));
     if (url.pathname === "/api/bizi") return json(res, 200, await bizi());
+    if (url.pathname === "/api/alerts") return json(res, 200, await alerts(q("linea") || null));
     const w = url.pathname.match(/^\/api\/wait\/([\w-]+)$/);
     if (w && req.method === "DELETE") return json(res, 200, removeWait(w[1]));
     if (req.method === "POST") {
@@ -108,7 +117,11 @@ export async function handleApi(req, res, next) {
       if (url.pathname === "/api/board") return json(res, 201, board(b));
       if (url.pathname === "/api/wait") return json(res, 201, addWait(b));
       if (w) return json(res, 200, updateWait(w[1], b));
-      if (url.pathname === "/api/boarded") return json(res, 201, await recordBoarding(b));
+      if (url.pathname === "/api/boarded") {
+        const out = await recordBoarding(b);
+        if (out.pred && out.code) learnBoarding(out.line, out.code, out.pred);
+        return json(res, 201, { ok: out.ok, id: out.id, avanzaMin: out.avanzaMin, verified: out.verified });
+      }
       const u = url.pathname.match(/^\/api\/boarded\/([\w-]+)\/undo$/);
       if (u) return json(res, 200, undoBoarding(u[1], b));
       if (url.pathname === "/api/feedback") return json(res, 201, addFeedback(b));

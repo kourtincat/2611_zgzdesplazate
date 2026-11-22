@@ -53,6 +53,9 @@ npm start              # sólo arranca (si dist/ ya está compilado)
 `COLLECT_BUDGET`. Ejecútalo desde la raíz del proyecto (usa `./data`). No arranques dev y producción a la vez:
 los dos grabadores escribirían en los mismos ficheros.
 
+**Publicar en internet** (VPS o Docker, HTTPS, dominio y SEO): ver [DEPLOY.md](DEPLOY.md). El servidor de producción ya sirve
+cada URL con su título, descripción y resumen para buscadores, además de `/sitemap.xml` y `/robots.txt` (`SITE_URL` fija el dominio).
+
 ## Datos
 `public/data/network.json` (la red ya procesada) va incluido en el repo, así que la app arranca sin descargar nada más.
 La carpeta `data/` (GTFS crudo, snapshots del grabador, modelo de hábitos y avisos de usuarios) se genera en local y no se publica.

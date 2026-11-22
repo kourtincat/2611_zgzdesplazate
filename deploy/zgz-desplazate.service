@@ -1,0 +1,21 @@
+# systemd: mantiene el servidor (y el grabador de Avanza) siempre encendido y lo reinicia si cae.
+[Unit]
+Description=ZGZ Desplazate
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=zgz
+WorkingDirectory=/opt/zgz-desplazate
+EnvironmentFile=/etc/zgz-desplazate.env
+ExecStart=/usr/bin/node server/index.mjs
+Restart=always
+RestartSec=5
+# La salida estándar no incluye IPs ni peticiones; journald guarda sólo arranques y errores.
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/zgz-desplazate/data
+
+[Install]
+WantedBy=multi-user.target

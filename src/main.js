@@ -44,7 +44,8 @@ $("topbar").addEventListener("click", (e) => {
   const n = e.target.closest("[data-nav]");
   if (n) n.dataset.nav === "info" ? go("info", {}) : (n.dataset.nav === "home" ? home : back)();
 });
-$("start-here").onclick = () => usePick();
+$("start-here").onclick = () => usePick("origin");
+$("go-here").onclick = () => usePick("dest");
 // Tema claro / oscuro (interfaz y mapa). Se recuerda en este navegador.
 function applyTheme(t) {
   document.documentElement.dataset.theme = t;

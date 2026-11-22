@@ -1,0 +1,4 @@
+# Los scripts de despliegue se ejecutan en Linux: siempre con fin de línea LF.
+*.sh text eol=lf
+Dockerfile text eol=lf
+deploy/* text eol=lf

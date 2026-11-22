@@ -510,16 +510,16 @@ body[data-view="welcome"] .wait-bar { display: none; }
 .place-chip:active { background: var(--hover); }
 .field.barrio select { height: 44px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--rule2); background: var(--card); color: var(--ink); font: inherit; font-size: 15px; }
 /* Bizi: azul corporativo, relleno = disponibilidad */
-.bz-ico { border-color: #0072ce !important; background: #0072ce; color: #fff; }
-.bz-ico.low { background: rgba(0,114,206,.38); }
-.bz-ico.none { background: transparent; color: #6fb6ec; }
+.bz-ico { border-color: #54a097 !important; background: #54a097; color: #fff; }
+.bz-ico.low { background: rgba(84,160,151,.38); }
+.bz-ico.none { background: transparent; color: #9fd6ce; }
 .bz-ico.off { border-color: #666 !important; background: #2a2c31; color: var(--mute); }
 .bz-key { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
-.bz-dot { width: 12px; height: 12px; border-radius: 50%; border: 2.5px solid #0072ce; background: #0072ce; display: inline-block; }
-.bz-dot.low { background: rgba(0,114,206,.38); }
+.bz-dot { width: 12px; height: 12px; border-radius: 50%; border: 2.5px solid #54a097; background: #54a097; display: inline-block; }
+.bz-dot.low { background: rgba(84,160,151,.38); }
 .bz-dot.none { background: transparent; }
 .bz-dot.off { border-color: #666; background: #2a2c31; }
-.pop-actions button.blue { background: #0072ce; color: #fff; }
+.pop-actions button.blue { background: #54a097; color: #fff; }
 
 /* Inicio: accesos grandes, 2 por fila; Recientes plegable */
 .quick { grid-template-columns: repeat(2, 1fr); gap: 8px; }
@@ -548,3 +548,118 @@ body[data-view="welcome"] .wait-bar { display: none; }
 .jr-arr b { font-family: var(--mono); font-size: 22px; color: var(--ink); }
 .jr-arr small { font-size: 10px; color: var(--mute); text-transform: uppercase; letter-spacing: .5px; }
 .jr-hint { margin: 0; font-size: 13px; color: var(--soft); }
+
+/* Resumen para buscadores: se ve sólo mientras carga la app (luego se sustituye) */
+.seo-summary { font-size: 12px; color: var(--mute); max-height: 30vh; overflow: hidden; padding-top: 8px; }
+.seo-summary h1 { font-size: 16px; color: var(--ink); margin: 0 0 6px; }
+.seo-summary h2 { font-size: 13px; margin: 8px 0 4px; }
+.seo-summary a { color: var(--soft); }
+
+.adj { font-family: var(--mono); font-size: 11px; color: var(--mute); margin-left: 4px; }
+
+/* ---------- Botones claros: todo lo que se pulsa lleva fondo claro, para que se reconozca como botón.
+   Las tarjetas y listas siguen oscuras; el rojo queda para la acción principal (Subir, Esperar…). ---------- */
+:root { --btn: #e8e9ec; --btn-ink: #0b0b0d; --btn-sub: #4a4e56; --btn-press: #c4c7cc; --btn-rule: transparent; --btn-shadow: none; --btn-warn: #8a6d00; }
+:root[data-theme="light"] { --btn: #fff; --btn-ink: #111214; --btn-sub: #555a62; --btn-press: #e6e7ea; --btn-rule: #c9cbd0; --btn-shadow: 0 1px 3px rgba(0,0,0,.12); }
+.qchip, .icon-btn, .pill, .ghost-btn, .star-line, .go-dest, .fchip, .place-chip {
+  background: var(--btn); color: var(--btn-ink); border: 1px solid var(--btn-rule); box-shadow: var(--btn-shadow);
+}
+.qchip:active, .icon-btn:active, .pill:active, .ghost-btn:active, .star-line:active, .go-dest:active, .fchip:active, .place-chip:active { background: var(--btn-press); }
+.map-tools .pill { background: var(--btn); box-shadow: 0 2px 8px rgba(0,0,0,.35); }
+[data-cool][data-left]:not([data-left=""])::before { color: var(--btn-warn); }
+[data-cool]::after { background: var(--line); }
+.fchip.on { background: var(--line); color: #fff; border-color: var(--line); box-shadow: none; }
+.fchip.on .lb { box-shadow: 0 0 0 2px #fff; }
+.star-line.on { background: var(--bus); color: #000; border-color: var(--bus); }
+#social-btn { color: var(--btn-sub); }
+#social-btn.on { background: var(--ok); color: #000; border-color: var(--ok); box-shadow: 0 2px 8px rgba(0,0,0,.35); }
+.wait-alert select { background: var(--btn); color: var(--btn-ink); border-color: var(--btn-rule); }
+
+/* Inicio: Nº de poste a todo el ancho y 4 accesos debajo, ocupando todo el espacio */
+.home { gap: 12px; }
+.quick { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.qchip { min-height: 64px; font-size: 16px; font-weight: 900; }
+.qchip span { color: var(--btn-ink); }
+.qchip.wide { grid-column: 1 / -1; min-height: 72px; font-size: 19px; display: grid; grid-template-columns: 34px 1fr; grid-template-rows: auto auto; align-content: center; column-gap: 12px; text-align: left; }
+.qchip.wide span { grid-row: 1 / 3; align-self: center; font-size: 30px; width: auto; }
+.qchip.wide small { font-size: 12px; font-weight: 600; color: var(--btn-sub); }
+.rec-block { margin-top: 4px; border-top: 1px solid var(--rule); padding-top: 6px; }
+/* Información: los botones (Enviar, Ver el código) con su texto en negrita y contraste pleno, no en gris */
+.info details > .cta, .info details > p > .cta { color: var(--on-ink); font-weight: 900; }
+.info details > .cta.wide { width: calc(100% - 28px); height: 48px; font-size: 16px; }
+.info .operated { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--rule); font-weight: 700; }
+.info .operated a { font-weight: 900; }
+/* Línea: buscador «¿A dónde vas?» bajo tu parada */
+.to-search { margin: 4px 0 10px; }
+.to-search[hidden] { display: none; }
+.to-search .search input { height: 48px; font-size: 16px; }
+.to-search #to-res:not(:empty) { margin-top: 6px; }
+
+/* Recorrido: el tiempo a la izquierda del poste (ancho fijo) para que la columna de postes quede alineada.
+   Fila tocada o con el cursor: contorno blanco. */
+.row .eta-mini, .row .eta-mini:empty { min-width: 34px; padding: 0 8px 0 0; text-align: right; }
+.row .poste { min-width: 44px; padding-right: 10px; }
+.row:hover, .row.open { background: var(--hover); box-shadow: inset 0 0 0 2px var(--ink); }
+
+/* Tu viaje: «Dónde subes» y «Dónde bajas» con la misma maqueta; tocarlas centra el mapa en la parada. */
+#eta-card { align-items: stretch; }
+.jr-tap { flex: 1; min-width: 0; text-align: left; background: none; border: 0; padding: 4px 0; cursor: pointer; color: inherit; font: inherit; flex-direction: row; }
+#eta-card .jr-tap { flex-direction: column; align-items: flex-start; gap: 6px; }
+.jr-tap .tag { white-space: nowrap; }
+.jr-tap .jr-main b { font-size: 18px; }
+.jr-tap:active .jr-main b { text-decoration: underline; }
+.eta-big { justify-content: space-between; gap: 2px; }
+.fav-star { width: 40px; height: 36px; border: 1px solid var(--btn-rule); border-radius: 10px; background: var(--btn); color: var(--btn-ink); font-size: 22px; line-height: 1; box-shadow: var(--btn-shadow); }
+.fav-star.on { background: var(--bus); color: #000; border-color: var(--bus); }
+
+/* Con una parada elegida, el cambio de sentido no tiene sentido aquí: se oculta (se cambia desde la exploración). */
+#sheet-body:not(.no-stop) .rv > .dir-block { display: none; }
+
+/* Actualizar poste / línea: con icono, en una sola fila sin saltos */
+.actions-row { flex-wrap: nowrap; min-width: 0; }
+.actions-row .pill { flex: none; white-space: nowrap; }
+.actions-row #scan-meta { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Alteraciones del servicio (Avanza) */
+.alerts-box[hidden] { display: none; }
+.alerts { margin: 8px 0; border: 1px solid #b38f00; border-left-width: 5px; border-radius: 10px; background: rgba(255,212,0,.07); }
+.alerts summary { display: flex; align-items: center; gap: 8px; padding: 10px 12px; cursor: pointer; list-style: none; }
+.alerts summary::-webkit-details-marker { display: none; }
+.alerts summary::after { content: "▾"; margin-left: auto; color: var(--mute); }
+.alerts[open] summary::after { content: "▴"; }
+.al-ico { color: var(--bus-text); font-size: 18px; }
+.al-item { padding: 0 12px 12px; display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
+.al-item + .al-item { border-top: 1px solid var(--rule); padding-top: 10px; }
+.al-item p { margin: 2px 0; color: var(--soft); line-height: 1.4; }
+.al-item a { color: var(--ink); font-weight: 700; }
+:root[data-theme="light"] .al-ico { color: #8a6d00; }
+.rv > .alerts-box { order: 0; }
+
+/* Punto tocado en el mapa: «Empezar aquí» (blanco) e «Ir aquí» (amarillo), uno al lado del otro */
+.pick-bar { position: absolute; top: -58px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; z-index: 2; }
+.pick-bar[hidden] { display: none; }
+.pick-bar .start-here { position: static; transform: none; top: auto; left: auto; }
+#start-here { background: #fff; color: #000; }
+#go-here { background: var(--bus); color: #000; }
+#pick-bar .start-here[hidden] { display: none; }
+:root[data-theme="light"] #start-here { box-shadow: 0 0 0 1px #c9cbd0, 0 6px 20px rgba(0,0,0,.25); }
+@media (min-width: 900px) { .pick-bar { top: auto; bottom: 16px; left: calc(100% + 16px); transform: none; } }
+
+/* Cómo llegar: destinos populares en rejilla de 2 columnas iguales (nada se descoloca al cambiar el ancho) */
+.places { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.place-chip { display: flex; width: 100%; min-width: 0; height: 40px; border-radius: 12px; justify-content: flex-start; }
+.place-chip span { flex: none; }
+.place-chip { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.place-chip > :last-child { overflow: hidden; text-overflow: ellipsis; }
+/* Opción Bizi */
+.bizi-opt { border-color: #54a097; }
+.bizi-opt.on { box-shadow: inset 0 0 0 1px #54a097; }
+.bz-leg { background: #54a097; color: #fff; border-radius: 6px; padding: 1px 6px; font-weight: 900; }
+.bz-steps { margin: 6px 0 0; padding: 0; }
+.bz-steps[hidden] { display: none; }
+.bz-ride { border-left: 4px solid #54a097; }
+/* Bizi como línea: chip en la lista de líneas, lista completa con raíl del color Bizi, globo de elegir línea */
+.bizi-chip { border-color: #54a097; }
+.bz-all { border-left: 4px solid #54a097; padding-left: 8px; margin-left: 4px; }
+.pop-lines { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; max-width: 220px; }
+.pop-line { background: none; border: 0; padding: 0; }

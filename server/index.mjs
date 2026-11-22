@@ -7,11 +7,15 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { handleApi, boot } from "./api.mjs";
+import { renderHtml, sitemap, robots } from "./seo.mjs";
 
 const ROOT = process.cwd();
 const DIST = path.join(ROOT, "dist");
 const PORT = +(process.env.PORT || 8080);
 const HOST = process.env.HOST || "0.0.0.0";
+// Dominio público para enlaces canónicos y sitemap (p. ej. https://zgzdesplazate.es). Sin él, se usa el Host pedido.
+const SITE_URL = (process.env.SITE_URL || "").replace(/\/$/, "");
+const originOf = (req) => SITE_URL || `${req.headers["x-forwarded-proto"] || "http"}://${req.headers.host || `localhost:${PORT}`}`;
 
 if (!fs.existsSync(path.join(DIST, "index.html"))) {
   console.error("Falta dist/: ejecuta `npm run build` antes de `npm start` (o usa `npm run serve`).");
@@ -32,10 +36,20 @@ function sendFile(res, file) {
   fs.createReadStream(file).pipe(res);
 }
 
+function sendText(res, status, type, body) {
+  res.statusCode = status; res.setHeader("Content-Type", type); res.setHeader("Cache-Control", "no-cache"); res.end(body);
+}
 function serveStatic(req, res) {
   if (req.method !== "GET" && req.method !== "HEAD") { res.statusCode = 405; return res.end(); }
-  let rel;
-  try { rel = decodeURIComponent(new URL(req.url, "http://x").pathname); } catch { res.statusCode = 400; return res.end(); }
+  let rel, raw;
+  try { raw = new URL(req.url, "http://x").pathname; rel = decodeURIComponent(raw); } catch { res.statusCode = 400; return res.end(); }
+  if (rel === "/sitemap.xml") return sendText(res, 200, "application/xml; charset=utf-8", sitemap(originOf(req)));
+  if (rel === "/robots.txt") return sendText(res, 200, "text/plain; charset=utf-8", robots(originOf(req)));
+  // Páginas de la app: index.html con el título, la descripción y el resumen propios de cada URL.
+  if (!path.extname(rel) || rel === "/index.html") {
+    const { status, html } = renderHtml(DIST, rel === "/index.html" ? "/" : raw, originOf(req));
+    return sendText(res, status, "text/html; charset=utf-8", html);
+  }
   const file = path.normalize(path.join(DIST, rel));
   if (!file.startsWith(DIST)) { res.statusCode = 403; return res.end(); }
   fs.stat(file, (err, st) => {
@@ -48,5 +62,7 @@ function serveStatic(req, res) {
 
 boot();
 http.createServer((req, res) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
   handleApi(req, res, () => serveStatic(req, res)).catch?.((e) => { res.statusCode = 500; res.end(String(e)); });
 }).listen(PORT, HOST, () => console.log(`ZGZ Movilidad -> http://localhost:${PORT}`));

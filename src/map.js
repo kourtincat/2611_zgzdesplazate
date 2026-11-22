@@ -8,7 +8,7 @@ const STYLE = "https://tiles.openfreemap.org/styles/dark";
 const EMPTY = { type: "FeatureCollection", features: [] };
 export const TRIP_RED = "#ff2a2a";
 const BUS_YELLOW = "#ffd400";
-export const BIZI_BLUE = "#0072ce";
+export const BIZI_BLUE = "#54a097";
 
 async function darkStyle() {
   const style = await (await fetch(STYLE)).json();
@@ -100,15 +100,15 @@ export async function createMap(container, bounds) {
     paint: { "text-color": "#fff", "text-halo-color": "#000", "text-halo-width": 2 } });
   // Capa «Bizi»: aro azul corporativo; el relleno indica disponibilidad (lleno ≥ 5 bicis · claro 1-4 · vacío 0;
   // gris = fuera de servicio). Dentro, el nº de bicis libres.
-  map.addLayer({ id: "bizi", type: "circle", source: "bizi", minzoom: 11.5, layout: { visibility: "none" },
+  map.addLayer({ id: "bizi", type: "circle", source: "bizi", layout: { visibility: "none" },
     paint: {
       "circle-radius": ["interpolate", ["linear"], ["zoom"], 12, 5, 16, 12],
-      "circle-color": ["case", ["!", ["get", "on"]], "#2a2c31", [">=", ["get", "bikes"], 5], BIZI_BLUE, [">", ["get", "bikes"], 0], "rgba(0,114,206,0.38)", "#0b0b0d"],
+      "circle-color": ["case", ["!", ["get", "on"]], "#2a2c31", [">=", ["get", "bikes"], 5], BIZI_BLUE, [">", ["get", "bikes"], 0], "rgba(84,160,151,0.38)", "#0b0b0d"],
       "circle-stroke-color": ["case", ["!", ["get", "on"]], "#666", BIZI_BLUE],
       "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 12, 2, 16, 3], "circle-pitch-alignment": "map",
     } });
   map.addLayer({ id: "bizi-labels", type: "symbol", source: "bizi", minzoom: 14, layout: { visibility: "none", "text-field": ["to-string", ["get", "bikes"]], "text-font": ["Noto Sans Bold"], "text-size": 11, "text-allow-overlap": true },
-    paint: { "text-color": ["case", ["==", ["get", "bikes"], 0], "#6fb6ec", "#fff"] } });
+    paint: { "text-color": ["case", ["==", ["get", "bikes"], 0], "#9fd6ce", "#fff"] } });
   // Destinos populares («Cómo llegar»): se tocan en el mapa para elegirlos.
   map.addLayer({ id: "places", type: "circle", source: "places", layout: { visibility: "none" },
     paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 11, 4, 16, 8], "circle-color": "#fff", "circle-stroke-color": TRIP_RED, "circle-stroke-width": 2.5, "circle-pitch-alignment": "map" } });
@@ -172,7 +172,7 @@ export function clearLayers(map) { for (const s of ["sel", "trip", "plan", "stop
 export function setNetwork(map, net, near = null, visible = true, dim = 0.08) {
   map.setLayoutProperty("net", "visibility", visible ? "visible" : "none");
   setData(map, "net", fc(net.routes.flatMap((r) => r.dirs.slice(0, 1).map((d) =>
-    line(d.shape, { color: r.color, op: !near ? 0.35 : near.has(r.id) ? 0.9 : dim })))));
+    line(d.shape, { id: r.id, color: r.color, op: !near ? 0.35 : near.has(r.id) ? 0.9 : dim })))));
 }
 
 // Línea: todos los sentidos dibujados en paralelo (offset) y el activo resaltado.
